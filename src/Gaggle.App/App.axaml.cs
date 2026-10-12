@@ -263,6 +263,14 @@ public partial class App : Application
             UpdateSettings(_settings with { CorrectPositionsOnRestore = !_settings.CorrectPositionsOnRestore });
         sub.Add(correct);
 
+        var restore = new NativeMenuItem("Restore size as soon as a window is pulled out of a layout")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.RestoreSizeDuringDrag,
+        };
+        restore.Click += (_, _) => UpdateSettings(_settings with { RestoreSizeDuringDrag = !_settings.RestoreSizeDuringDrag });
+        sub.Add(restore);
+
         var taskbar = new NativeMenuItem("Taskbar button for each gaggle")
         {
             ToggleType = MenuItemToggleType.CheckBox,

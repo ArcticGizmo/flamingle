@@ -111,6 +111,16 @@ internal sealed class ZoneContainerService : IDisposable
 
     // ---- Membership ----
 
+    /// <summary>The slot holding a window, if it's in a layout.</summary>
+    public ZoneSlot? SlotOf(IntPtr hwnd)
+    {
+        foreach (var c in _containers)
+        {
+            if (c.Slots.TryGetValue(hwnd, out var slot)) return slot;
+        }
+        return null;
+    }
+
     /// <summary>A window was dropped into <paramref name="zones"/> on <paramref name="monitor"/>.</summary>
     /// <param name="before">The window's rect before this drag (null if it was maximised).</param>
     public void Snapped(IntPtr hwnd, MonitorInfo monitor, IReadOnlyList<int> zones, PixelRect? before)
@@ -129,7 +139,9 @@ internal sealed class ZoneContainerService : IDisposable
     {
         if (RemoveSlot(hwnd) is not { } slot) return;
 
-        if (slot.Restore is { } restore && !Win32.IsZoomed(hwnd) && WindowQuery.WindowRect(hwnd) is { } current)
+        // Already back to its old size (restored mid-drag)? Then there's nothing to do.
+        if (slot.Restore is { } restore && !Win32.IsZoomed(hwnd) && WindowQuery.WindowRect(hwnd) is { } current
+            && (current.Width != restore.Width || current.Height != restore.Height))
         {
             var r = ZoneSlot.RestoreAtCursor(restore, current, cursorX);
             Win32.SetWindowPos(hwnd, IntPtr.Zero, r.X, r.Y, r.Width, r.Height,

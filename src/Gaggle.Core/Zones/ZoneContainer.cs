@@ -17,6 +17,23 @@ public sealed record ZoneSlot(long Handle, uint ProcessId, List<int> Zones, Pixe
         var x = cursorX - (int)Math.Round(fraction * restore.Width);
         return new PixelRect(x, current.Y, restore.Width, restore.Height);
     }
+
+    /// <summary>
+    /// Mid-drag: the pre-snap size, placed under the cursor <em>now</em> so the point the user grabbed (at
+    /// <paramref name="grabX"/>, <paramref name="grabY"/> on <paramref name="grabbed"/>) stays under the pointer —
+    /// horizontally as the same fraction of the width, vertically the same distance below the top (so the
+    /// title bar stays under the pointer).
+    /// </summary>
+    public static PixelRect RestoreUnderGrab(PixelRect restore, PixelRect grabbed, int grabX, int grabY, int cursorX, int cursorY)
+    {
+        var fraction = grabbed.Width > 0 ? Math.Clamp((grabX - grabbed.X) / (double)grabbed.Width, 0, 1) : 0.5;
+        var below = Math.Clamp(grabY - grabbed.Y, 0, Math.Max(0, restore.Height - 1));
+        return new PixelRect(
+            cursorX - (int)Math.Round(fraction * restore.Width),
+            cursorY - below,
+            restore.Width,
+            restore.Height);
+    }
 }
 
 /// <summary>

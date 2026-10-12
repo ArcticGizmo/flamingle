@@ -159,6 +159,17 @@ public class ZoneContainerTests
     }
 
     [Fact]
+    public void Restore_under_grab_follows_the_cursor()
+    {
+        var grabbed = new PixelRect(0, 0, 1000, 800);     // zone-sized when the drag began
+        var restore = new PixelRect(500, 300, 400, 300);  // pre-snap size
+
+        // Grabbed half-way along the title bar, 10 px down; the cursor has since moved to (600, 210).
+        var r = ZoneSlot.RestoreUnderGrab(restore, grabbed, grabX: 500, grabY: 10, cursorX: 600, cursorY: 210);
+        Assert.Equal(new PixelRect(400, 200, 400, 300), r);
+    }
+
+    [Fact]
     public void Restore_survives_a_round_trip()
     {
         var c = new ZoneContainer(@"\\.\DISPLAY1", "columns-2", new PixelRect(0, 0, 800, 600));

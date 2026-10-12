@@ -94,6 +94,17 @@ internal static class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsHungAppWindow(IntPtr hwnd);
 
+    public const uint WM_CANCELMODE = 0x001F;
+    public const uint WM_SYSCOMMAND = 0x0112;
+    public const int SC_DRAGMOVE = 0xF012;   // SC_MOVE | HTCAPTION: "move, following the mouse"
+    public const int VK_LBUTTON = 0x01;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    public static IntPtr MakeLParam(int lo, int hi) => (IntPtr)((hi << 16) | (lo & 0xFFFF));
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern IntPtr BeginDeferWindowPos(int nNumWindows);
 

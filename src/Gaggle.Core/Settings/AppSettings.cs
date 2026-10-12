@@ -43,6 +43,10 @@ public sealed record AppSettings
     /// whole layout minimises / restores together.</summary>
     public bool ZonesFormGaggle { get; init; } = true;
 
+    /// <summary>Experimental: a window pulled out of its zones shrinks back to its pre-snap size as soon as the
+    /// drag starts (like FancyZones / Windows Snap), rather than when it's dropped.</summary>
+    public bool RestoreSizeDuringDrag { get; init; } = true;
+
     /// <summary>Experimental: give every gaggle its own taskbar button (icon made from its apps' icons);
     /// clicking it minimises / restores the gaggle.</summary>
     public bool TaskbarButtons { get; init; } = true;
