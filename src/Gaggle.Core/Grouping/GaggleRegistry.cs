@@ -17,16 +17,38 @@ public sealed class GaggleRegistry
     /// <summary>In creation order — the order gives each gaggle its slot (1-based) for the slot hotkeys.</summary>
     public IReadOnlyList<GaggleGroup> Groups => _groups;
 
-    public GaggleGroup Create(string name, IEnumerable<GaggleMember> members)
+    public GaggleGroup Create(string name, IEnumerable<GaggleMember> members, string? zoneMonitor = null)
     {
         var list = members.DistinctBy(m => m.Handle).ToList();
         foreach (var m in list)
             RemoveWindowSilently(m.Handle);
 
-        var group = new GaggleGroup(Guid.NewGuid(), name, list) { LastUsed = _time.GetUtcNow() };
+        var group = new GaggleGroup(Guid.NewGuid(), name, list) { LastUsed = _time.GetUtcNow(), ZoneMonitor = zoneMonitor };
         _groups.Add(group);
         Changed?.Invoke();
         return group;
+    }
+
+    /// <summary>Add a window to an existing gaggle (taking it out of any other). No-op if it's already there.</summary>
+    public void Add(GaggleGroup group, GaggleMember member)
+    {
+        if (group.Contains(member.Handle) || !_groups.Contains(group)) return;
+        RemoveWindowSilently(member.Handle);
+        // Removing it elsewhere can't empty *this* group, so it's still registered.
+        group.Members.Add(member);
+        Changed?.Invoke();
+    }
+
+    /// <summary>The zone gaggle for a monitor, if there is one.</summary>
+    public GaggleGroup? ForZoneMonitor(string deviceName) => _groups.FirstOrDefault(g => g.ZoneMonitor == deviceName);
+
+    /// <summary>A zone layout moved to another monitor: its zone gaggle follows (and is renamed).</summary>
+    public void RehomeZoneGaggle(string from, string to, string newName)
+    {
+        if (from == to || ForZoneMonitor(from) is not { } group) return;
+        group.ZoneMonitor = to;
+        group.Name = newName;
+        Changed?.Invoke();
     }
 
     /// <summary>Replace everything (used when loading from disk). Empty groups are dropped.</summary>

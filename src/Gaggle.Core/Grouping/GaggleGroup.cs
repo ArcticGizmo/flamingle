@@ -21,5 +21,9 @@ public sealed class GaggleGroup
     /// <summary>When a gaggle was last acted on — the fallback target for the "toggle" hotkey.</summary>
     public DateTimeOffset LastUsed { get; set; }
 
+    /// <summary>Set for a gaggle built automatically from windows dropped into zones: the monitor device name
+    /// it belongs to. Null for gaggles the user picked by hand.</summary>
+    public string? ZoneMonitor { get; set; }
+
     public bool Contains(long handle) => Members.Any(m => m.Handle == handle);
 }

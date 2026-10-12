@@ -34,10 +34,29 @@ public sealed class PersistenceTests : IDisposable
     public void Settings_round_trip()
     {
         var file = new JsonFile<AppSettings>(Path.Combine(_dir, "settings.json"));
-        var custom = AppSettings.Default with { ToggleHotkey = "Ctrl+Alt+F9", LinkedMinimise = false };
+        var custom = (AppSettings.Default with { ToggleHotkey = "Ctrl+Alt+F9", LinkedMinimise = false })
+            .WithLayout(@"\\.\DISPLAY2", "grid-2x2");
 
         Assert.True(file.Save(custom));
-        Assert.Equal(custom, file.Load(AppSettings.Default));
+        var loaded = file.Load(AppSettings.Default);
+        Assert.Equal("Ctrl+Alt+F9", loaded.ToggleHotkey);
+        Assert.False(loaded.LinkedMinimise);
+        Assert.Equal("grid-2x2", loaded.LayoutIdFor(@"\\.\DISPLAY2"));
+        Assert.Equal("columns-2", loaded.LayoutIdFor(@"\\.\DISPLAY1"));
+    }
+
+    [Fact]
+    public void Zone_monitor_survives_a_round_trip()
+    {
+        var reg = new GaggleRegistry();
+        reg.Create("Zones", [new GaggleMember(1, 10, "Code", "a")], zoneMonitor: @"\\.\DISPLAY1");
+
+        var file = new JsonFile<GaggleSnapshot>(Path.Combine(_dir, "gaggles.json"));
+        file.Save(GaggleSnapshot.From(reg));
+
+        var loaded = new GaggleRegistry();
+        loaded.Load(file.Load(GaggleSnapshot.Empty).ToGroups(_ => true));
+        Assert.Equal(@"\\.\DISPLAY1", loaded.Groups.Single().ZoneMonitor);
     }
 
     [Fact]

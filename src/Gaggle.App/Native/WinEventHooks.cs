@@ -17,10 +17,13 @@ internal sealed class WinEventHooks : IDisposable
     public event Action<IntPtr>? MinimiseStarted;
     public event Action<IntPtr>? MinimiseEnded;
     public event Action<IntPtr>? Destroyed;
+    public event Action<IntPtr>? MoveSizeStarted;
+    public event Action<IntPtr>? MoveSizeEnded;
 
     public void Start()
     {
         Hook(Win32.EVENT_SYSTEM_FOREGROUND, Win32.EVENT_SYSTEM_FOREGROUND);
+        Hook(Win32.EVENT_SYSTEM_MOVESIZESTART, Win32.EVENT_SYSTEM_MOVESIZEEND);
         Hook(Win32.EVENT_SYSTEM_MINIMIZESTART, Win32.EVENT_SYSTEM_MINIMIZEEND);
         Hook(Win32.EVENT_OBJECT_DESTROY, Win32.EVENT_OBJECT_DESTROY);
     }
@@ -43,6 +46,8 @@ internal sealed class WinEventHooks : IDisposable
             case Win32.EVENT_SYSTEM_MINIMIZESTART: MinimiseStarted?.Invoke(hwnd); break;
             case Win32.EVENT_SYSTEM_MINIMIZEEND: MinimiseEnded?.Invoke(hwnd); break;
             case Win32.EVENT_OBJECT_DESTROY: Destroyed?.Invoke(hwnd); break;
+            case Win32.EVENT_SYSTEM_MOVESIZESTART: MoveSizeStarted?.Invoke(hwnd); break;
+            case Win32.EVENT_SYSTEM_MOVESIZEEND: MoveSizeEnded?.Invoke(hwnd); break;
         }
     }
 

@@ -10,14 +10,21 @@ namespace Gaggle.Core.Persistence;
 /// </summary>
 public sealed record GaggleSnapshot(List<GaggleSnapshot.Group> Groups)
 {
-    public sealed record Group(Guid Id, string Name, DateTimeOffset LastUsed, List<GaggleMember> Members);
+    public sealed record Group(
+        Guid Id, string Name, DateTimeOffset LastUsed, List<GaggleMember> Members, string? ZoneMonitor = null);
 
     public static GaggleSnapshot Empty { get; } = new([]);
 
     public static GaggleSnapshot From(GaggleRegistry registry)
-        => new(registry.Groups.Select(g => new Group(g.Id, g.Name, g.LastUsed, [.. g.Members])).ToList());
+        => new(registry.Groups
+            .Select(g => new Group(g.Id, g.Name, g.LastUsed, [.. g.Members], g.ZoneMonitor))
+            .ToList());
 
     /// <summary>Rebuild the groups, keeping only members <paramref name="isAlive"/> accepts.</summary>
     public IEnumerable<GaggleGroup> ToGroups(Func<GaggleMember, bool> isAlive)
-        => Groups.Select(g => new GaggleGroup(g.Id, g.Name, g.Members.Where(isAlive)) { LastUsed = g.LastUsed });
+        => Groups.Select(g => new GaggleGroup(g.Id, g.Name, g.Members.Where(isAlive))
+        {
+            LastUsed = g.LastUsed,
+            ZoneMonitor = g.ZoneMonitor,
+        });
 }

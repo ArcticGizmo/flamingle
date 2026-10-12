@@ -24,5 +24,34 @@ public sealed record AppSettings
     /// (in case an app restores its own geometry).</summary>
     public bool CorrectPositionsOnRestore { get; init; } = true;
 
+    // ---- Zones (FancyZones-style drag-to-snap) ----
+
+    public bool ZonesEnabled { get; init; } = true;
+
+    /// <summary>Hold this while dragging a window to show the zones: <c>Shift</c>, <c>Alt</c>, or <c>None</c>
+    /// (zones on every drag). Ctrl is always "span several zones".</summary>
+    public string ZoneDragModifier { get; init; } = "Shift";
+
+    /// <summary>Gap between zones (and around the edge of the work area), in physical pixels.</summary>
+    public int ZoneSpacing { get; init; } = 8;
+
+    /// <summary>Layout id per monitor device name (e.g. <c>\\.\DISPLAY1</c> → <c>columns-3</c>). Monitors not
+    /// listed use <see cref="Zones.ZoneLayout.DefaultId"/>.</summary>
+    public Dictionary<string, string> ZoneLayouts { get; init; } = [];
+
+    /// <summary>Experimental: windows dropped into zones on a monitor join that monitor's zone gaggle, so the
+    /// whole layout minimises / restores together.</summary>
+    public bool ZonesFormGaggle { get; init; } = true;
+
+    /// <summary>Experimental: give every gaggle its own taskbar button (icon made from its apps' icons);
+    /// clicking it minimises / restores the gaggle.</summary>
+    public bool TaskbarButtons { get; init; } = true;
+
+    public string LayoutIdFor(string deviceName)
+        => ZoneLayouts.TryGetValue(deviceName, out var id) ? id : Zones.ZoneLayout.DefaultId;
+
+    public AppSettings WithLayout(string deviceName, string layoutId)
+        => this with { ZoneLayouts = new Dictionary<string, string>(ZoneLayouts) { [deviceName] = layoutId } };
+
     public static AppSettings Default { get; } = new();
 }

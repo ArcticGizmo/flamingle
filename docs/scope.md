@@ -48,6 +48,17 @@ A lightweight tray app that lets you treat a set of windows as a single parent "
 - Re-attach to already-running instances instead of launching duplicates.
 - Support Win32 apps (exe path + args) and Store/UWP apps (AppUserModelID).
 
+### Zones (pulled forward, experimental)
+
+FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on PowerToys.
+
+- Hold a modifier (Shift) while dragging and the zones show on every monitor. Drop snaps the window
+  into a zone; Ctrl spans several zones.
+- Each monitor gets one of a set of built-in layout templates, chosen from the tray. No editor yet.
+- Windows dropped into zones on a monitor form that monitor's *zone gaggle*. This is a toggle; it
+  replaces guessing Snap Groups.
+- Later: a layout editor, keyboard moves between zones, and the zone gaggle moving as a unit (Phase 2).
+
 ### Later / maybe
 
 - Auto-detect new Snap Groups and offer to turn them into a gaggle.

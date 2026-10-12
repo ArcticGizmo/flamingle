@@ -12,7 +12,7 @@ namespace Gaggle.App.Services;
 /// up puts everything back, and — when <see cref="AppSettings.LinkedMinimise"/> is on — follows the user
 /// minimising or restoring any one member. Lives on the UI thread.
 /// </summary>
-internal sealed class GaggleController : IDisposable
+internal sealed class GaggleController
 {
     // How long after a restore to re-stack and re-position (lets the async restores land first).
     private static readonly TimeSpan SettleDelay = TimeSpan.FromMilliseconds(200);
@@ -25,7 +25,7 @@ internal sealed class GaggleController : IDisposable
     private readonly GaggleRegistry _registry;
     private readonly Func<AppSettings> _settings;
     private readonly EchoSuppressor _echo = new();
-    private readonly WinEventHooks _hooks = new();
+    private readonly WinEventHooks _hooks;
 
     // What each minimised gaggle looked like just before it went down.
     private readonly Dictionary<Guid, MinimisedState> _minimised = [];
@@ -35,9 +35,10 @@ internal sealed class GaggleController : IDisposable
 
     private sealed record MinimisedState(IReadOnlyList<long> OrderTopFirst, Dictionary<long, PixelRect> Bounds);
 
-    public GaggleController(GaggleRegistry registry, Func<AppSettings> settings)
+    public GaggleController(GaggleRegistry registry, WinEventHooks hooks, Func<AppSettings> settings)
     {
         _registry = registry;
+        _hooks = hooks;
         _settings = settings;
     }
 
@@ -48,13 +49,13 @@ internal sealed class GaggleController : IDisposable
     /// the user clicks the bare desktop.</summary>
     public long LastFocus { get; private set; }
 
+    /// <summary>Subscribe to the (shared) hooks. The caller starts them.</summary>
     public void Start()
     {
         _hooks.ForegroundChanged += OnForegroundChanged;
         _hooks.MinimiseStarted += OnMinimiseStarted;
         _hooks.MinimiseEnded += OnMinimiseEnded;
         _hooks.Destroyed += hwnd => _registry.RemoveWindow(hwnd);
-        _hooks.Start();
 
         var fg = Win32.GetForegroundWindow();
         if (WindowQuery.IsCandidate(fg)) LastFocus = fg;
@@ -149,6 +150,42 @@ internal sealed class GaggleController : IDisposable
         var group = _registry.Create(name, members);
         Notice?.Invoke($"Created \"{group.Name}\" ({group.Members.Count} windows) — slot {_registry.SlotOf(group)}.");
         return group;
+    }
+
+    // ---- Zone gaggles ----
+
+    /// <summary>
+    /// A window was dropped into zones on <paramref name="monitor"/>: add it to that monitor's zone gaggle
+    /// (creating it on first use), so the zoned layout minimises / restores as one. Windows in a hand-picked
+    /// gaggle stay where they are; a window moving between monitors moves between zone gaggles.
+    /// </summary>
+    public void JoinZoneGaggle(IntPtr hwnd, MonitorInfo monitor)
+    {
+        if (!_settings().ZonesFormGaggle || !WindowQuery.IsCandidate(hwnd)) return;
+
+        var current = _registry.FindByWindow(hwnd);
+        if (current is { ZoneMonitor: null }) return;
+        if (current?.ZoneMonitor == monitor.DeviceName) return;
+
+        var member = WindowQuery.ToMember(WindowQuery.Snapshot(hwnd));
+        if (_registry.ForZoneMonitor(monitor.DeviceName) is { } group)
+        {
+            _registry.Add(group, member);
+        }
+        else
+        {
+            group = _registry.Create($"Zones · {monitor.ShortName}", [member], monitor.DeviceName);
+            Notice?.Invoke($"Started a zone gaggle on {monitor.ShortName} (slot {_registry.SlotOf(group)}). " +
+                           "Windows you drop into zones there will minimise and restore together.");
+        }
+    }
+
+    /// <summary>A window was dragged out of its zones: drop it from its zone gaggle (hand-picked gaggles
+    /// are left alone).</summary>
+    public void LeaveZoneGaggle(IntPtr hwnd)
+    {
+        if (_registry.FindByWindow(hwnd) is { ZoneMonitor: not null })
+            _registry.RemoveWindow(hwnd);
     }
 
     // ---- Follow-ups ----
@@ -253,6 +290,4 @@ internal sealed class GaggleController : IDisposable
             .Distinct();
         return string.Join(", ", names);
     }
-
-    public void Dispose() => _hooks.Dispose();
 }
