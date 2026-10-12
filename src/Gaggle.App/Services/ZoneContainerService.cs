@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Threading;
 using Gaggle.App.Native;
 using Gaggle.App.Views;
@@ -12,9 +13,9 @@ namespace Gaggle.App.Services;
 
 /// <summary>
 /// Owns the zone containers — one per monitor, each a layout laid out in a movable frame, plus the windows
-/// snapped into its zones — and their handles: a chip on the top edge (drag to move, click for presets and
-/// actions) and a resize grip. Moving a frame re-places every slotted window in one <c>DeferWindowPos</c>
-/// batch, so the layout travels as a unit.
+/// snapped into its zones — and their handles: a pull-tab on the top edge (drag to move, click for presets
+/// and actions) and a strip over each divider between zones (drag to re-split). Moving the frame or a
+/// divider re-places every slotted window in one <c>DeferWindowPos</c> batch, so they move as a unit.
 ///
 /// <para>The handles show whenever the layout has windows on screen. They aren't topmost: they're lifted just
 /// above the layout when one of its windows comes to the front, so another app in front covers them too.</para>
@@ -28,18 +29,48 @@ internal sealed class ZoneContainerService : IDisposable
     private readonly JsonFile<List<ZoneContainerState>> _file;
     private readonly List<ZoneContainer> _containers = [];
     private readonly Dictionary<ZoneContainer, Handles> _handles = [];
+
+    // Layouts whose divider strips are showing ("Adjust splits").
+    private readonly HashSet<ZoneContainer> _adjusting = [];
+
+    // A zoned window being resized by its own edge (linked resize).
+    private LinkedResize? _resize;
+
+    private sealed class LinkedResize(ZoneContainer container, ZoneSlot slot, Dictionary<long, WindowPlacer.Margins> margins)
+    {
+        public ZoneContainer Container { get; } = container;
+        public ZoneSlot Slot { get; } = slot;
+        public IReadOnlyList<ZoneFraction> StartZones { get; } = container.Layout.Zones;
+        public Dictionary<long, WindowPlacer.Margins> Margins { get; } = margins;
+    }
     private readonly DispatcherTimer _sync;
     private readonly DispatcherTimer _apply;
 
     private DragState? _drag;
 
-    private sealed record Handles(ContainerHandleWindow Chip, ContainerHandleWindow Grip);
+    // The smallest a zone can be squeezed to by dragging a divider (physical px).
+    private const int MinZoneWidth = 240;
+    private const int MinZoneHeight = 160;
 
-    private sealed class DragState(ZoneContainer container, ContainerHandleWindow.Kind kind, Dictionary<long, WindowPlacer.Margins> margins)
+    // Divider strips are at least this thick (DIP), even when the zones have no spacing between them.
+    private const double MinDividerThickness = 8;
+
+    private sealed class Handles(ContainerHandleWindow chip)
+    {
+        public ContainerHandleWindow Chip { get; } = chip;
+        public List<DividerHandleWindow> Dividers { get; } = [];
+        public IEnumerable<Window> All => [Chip, .. Dividers];
+    }
+
+    private enum DragKind { Move, Divider }
+
+    private sealed class DragState(ZoneContainer container, DragKind kind, ZoneDivider? divider, Dictionary<long, WindowPlacer.Margins> margins)
     {
         public ZoneContainer Container { get; } = container;
-        public ContainerHandleWindow.Kind Kind { get; } = kind;
+        public DragKind Kind { get; } = kind;
+        public ZoneDivider? Divider { get; } = divider;
         public PixelRect StartFrame { get; } = container.Frame;
+        public IReadOnlyList<ZoneFraction> StartZones { get; } = container.Layout.Zones;
         public string StartDevice { get; } = container.DeviceName;
         public Dictionary<long, WindowPlacer.Margins> Margins { get; } = margins;
         public bool Pending { get; set; }
@@ -76,6 +107,17 @@ internal sealed class ZoneContainerService : IDisposable
 
     public event Action<string>? Notice;
 
+    /// <summary>The gaps toggle in a layout tab was flipped (the setting is global — the app owns it).</summary>
+    public event Action<bool>? GapsToggled;
+
+    /// <summary>Re-fit every layout's windows — after a setting that changes the zones (e.g. gaps).</summary>
+    public void ReflowAll()
+    {
+        Prune();
+        foreach (var c in _containers) Reflow(c);
+        SyncHandles();
+    }
+
     public void Start()
     {
         var monitors = Monitors.All();
@@ -104,7 +146,7 @@ internal sealed class ZoneContainerService : IDisposable
     /// filling the work area.</summary>
     public IReadOnlyList<PixelRect> ZonesFor(MonitorInfo monitor)
     {
-        var spacing = _settings().ZoneSpacing;
+        var spacing = _settings().EffectiveZoneSpacing;
         return ContainerOn(monitor.DeviceName)?.Zones(spacing)
             ?? ZoneMath.Resolve(ZoneLayout.ById(LayoutIdFor(monitor)), monitor.WorkArea, spacing);
     }
@@ -170,7 +212,7 @@ internal sealed class ZoneContainerService : IDisposable
     {
         var c = GetOrCreate(monitor);
         Prune();
-        var zones = c.Zones(_settings().ZoneSpacing);
+        var zones = c.Zones(_settings().EffectiveZoneSpacing);
 
         var taken = c.Slots.Values.SelectMany(s => s.Zones).ToHashSet();
         var free = Enumerable.Range(0, zones.Count).Where(i => !taken.Contains(i)).ToList();
@@ -232,24 +274,72 @@ internal sealed class ZoneContainerService : IDisposable
         var isNew = !_handles.TryGetValue(c, out var h);
         if (h is null)
         {
-            h = new Handles(new ContainerHandleWindow(ContainerHandleWindow.Kind.Chip),
-                            new ContainerHandleWindow(ContainerHandleWindow.Kind.Resize));
-            Wire(c, h.Chip);
-            Wire(c, h.Grip);
+            h = new Handles(new ContainerHandleWindow());
+            WireChip(c, h.Chip);
             _handles[c] = h;
         }
 
         h.Chip.SetLabel($"{c.Layout.Name} · {c.Slots.Count}");
         h.Chip.SetCurrentLayout(c.LayoutId);
+        h.Chip.SetGaps(_settings().ZoneGaps);
+        h.Chip.SetAdjusting(_adjusting.Contains(c));
+        SyncDividers(c, h);
         PositionHandles(c, h, monitor);
 
         if (isNew)
         {
             h.Chip.Show();
-            h.Grip.Show();
-            // Born on top of everything; tuck them in just above the layout instead.
+            // Born on top of everything; tuck it in just above the layout instead.
             PlaceHandlesInZOrder(c, h);
         }
+    }
+
+    /// <summary>One strip per divider while the user is adjusting splits (none otherwise). Rebuilt when the
+    /// layout's dividers change (never mid-drag).</summary>
+    private void SyncDividers(ZoneContainer c, Handles h)
+    {
+        if (_drag?.Container == c) return;
+
+        if (!_adjusting.Contains(c))
+        {
+            CloseDividers(h);
+            return;
+        }
+
+        var dividers = c.Dividers();
+        var same = dividers.Count == h.Dividers.Count
+            && dividers.Select(d => d.Vertical).SequenceEqual(h.Dividers.Select(w => w.Vertical));
+        if (same) return;
+
+        CloseDividers(h);
+        for (var i = 0; i < dividers.Count; i++)
+        {
+            var w = new DividerHandleWindow(dividers[i].Vertical);
+            var index = i;
+            w.DragStarted += () => BeginDrag(c, DragKind.Divider, index);
+            w.Dragged += (dx, dy) => DragTo(c, dx, dy);
+            w.DragEnded += () => EndDrag(c);
+            w.DoubleClicked += () => EvenOut(c);
+            h.Dividers.Add(w);
+        }
+        PositionHandles(c, h, MonitorOf(c));
+        foreach (var w in h.Dividers) w.Show();
+    }
+
+    private static void CloseDividers(Handles h)
+    {
+        foreach (var w in h.Dividers) w.Close();
+        h.Dividers.Clear();
+    }
+
+    /// <summary>Show / hide a layout's divider strips (the tab's "Adjust splits").</summary>
+    private void SetAdjusting(ZoneContainer c, bool on)
+    {
+        if (on ? !_adjusting.Add(c) : !_adjusting.Remove(c)) return;
+        if (_handles.TryGetValue(c, out var h)) h.Chip.SetAdjusting(on);
+        SyncHandles();
+        if (on && c.Dividers().Count == 0)
+            Notice?.Invoke($"{c.Layout.Name} has only one zone — nothing to split.");
     }
 
     private void PositionHandles(ZoneContainer c, Handles h, MonitorInfo? monitor)
@@ -261,43 +351,48 @@ internal sealed class ZoneContainerService : IDisposable
         var chip = h.Chip.PixelSizeAt(scale);
         h.Chip.Position = new PixelPoint(f.X + (f.Width - chip.Width) / 2, f.Y);
 
-        var grip = h.Grip.PixelSizeAt(scale);
-        h.Grip.Position = new PixelPoint(f.Right - grip.Width, f.Bottom - grip.Height);
+        // Each divider strip covers the gap between its zones.
+        var dividers = c.Dividers();
+        if (dividers.Count != h.Dividers.Count) return;
+        var zones = c.Zones(_settings().EffectiveZoneSpacing);
+        var thickness = (int)Math.Ceiling(MinDividerThickness * scale);
+        for (var i = 0; i < dividers.Count; i++)
+            h.Dividers[i].Place(ZoneDividers.HandleRect(dividers[i], zones, thickness), scale);
     }
 
-    /// <summary>Lift the handles above the layout: to the top if a layout window is in front, else just
-    /// beneath whatever app is.</summary>
+    /// <summary>Lift the tab above the layout: to the top if a layout window is in front, else just beneath
+    /// whatever app is. (Divider strips are topmost while shown, so they're left alone.)</summary>
     private void PlaceHandlesInZOrder(ZoneContainer c, Handles h)
     {
+        if (h.Chip.IsExpanded) return;   // topmost while open
         var fg = Win32.GetForegroundWindow();
         var insertAfter = c.Slots.ContainsKey(fg) || fg == IntPtr.Zero ? IntPtr.Zero /* HWND_TOP */ : fg;
-        foreach (var w in new[] { h.Chip, h.Grip })
-        {
-            var hwnd = w.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-            if (hwnd != IntPtr.Zero && hwnd != insertAfter)
-                Win32.SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, RaiseFlags);
-        }
+        var hwnd = h.Chip.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (hwnd != IntPtr.Zero && hwnd != insertAfter)
+            Win32.SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, RaiseFlags);
     }
 
     private void OnForegroundChanged(IntPtr hwnd)
     {
-        foreach (var (c, h) in _handles)
+        foreach (var (c, h) in _handles.ToList())
         {
             h.Chip.Collapse();
             if (c.Slots.ContainsKey(hwnd)) PlaceHandlesInZOrder(c, h);
+            // Switching to some other app ends split-adjusting (the strips are topmost — don't leave them).
+            else if (_adjusting.Contains(c)) SetAdjusting(c, false);
         }
     }
 
     private void HideHandles(ZoneContainer c)
     {
+        _adjusting.Remove(c);
         if (!_handles.Remove(c, out var h)) return;
-        h.Chip.Close();
-        h.Grip.Close();
+        foreach (var w in h.All) w.Close();
     }
 
-    private void Wire(ZoneContainer c, ContainerHandleWindow handle)
+    private void WireChip(ZoneContainer c, ContainerHandleWindow handle)
     {
-        handle.DragStarted += () => BeginDrag(c, handle.HandleKind);
+        handle.DragStarted += () => BeginDrag(c, DragKind.Move, -1);
         handle.Dragged += (dx, dy) => DragTo(c, dx, dy);
         handle.DragEnded += () => EndDrag(c);
         handle.DoubleClicked += () => FillMonitor(c);
@@ -313,6 +408,7 @@ internal sealed class ZoneContainerService : IDisposable
             if (MonitorOf(c) is { } m) LayoutPicked?.Invoke(m, id);
         };
         handle.ActionChosen += action => OnChipAction(c, action);
+        handle.GapsToggled += on => GapsToggled?.Invoke(on);
     }
 
     private void OnChipAction(ZoneContainer c, ChipAction action)
@@ -331,7 +427,91 @@ internal sealed class ZoneContainerService : IDisposable
             case ChipAction.ReleaseWindows:
                 Release(c);
                 break;
+            case ChipAction.EvenOutSplits:
+                EvenOut(c);
+                break;
+            case ChipAction.AdjustSplits:
+                SetAdjusting(c, !_adjusting.Contains(c));
+                break;
         }
+    }
+
+    // ---- Linked resize ----
+
+    /// <summary>
+    /// A zoned window is being resized by its own edge (called on every tick of Windows' resize loop). Each
+    /// inner edge that has moved drags its divider along, and the windows on the other side follow live —
+    /// like Windows 11 Snap Groups. Outer edges have nothing on the other side; they snap back on release.
+    /// </summary>
+    public void ResizeTick(IntPtr hwnd)
+    {
+        if (!_settings().LinkedResize || _drag is not null) return;
+
+        if (_resize is null)
+        {
+            var owner = _containers.FirstOrDefault(x => x.Slots.ContainsKey(hwnd));
+            if (owner is null) return;
+            var margins = owner.Slots.Keys
+                .Where(h => h != (long)hwnd)
+                .ToDictionary(h => h, h => WindowPlacer.MarginsOf((IntPtr)h));
+            _resize = new LinkedResize(owner, owner.Slots[hwnd], margins);
+        }
+
+        var r = _resize;
+        if (r.Slot.Handle != (long)hwnd) return;
+
+        var c = r.Container;
+        var f = c.Frame;
+        var spacing = _settings().EffectiveZoneSpacing;
+        var target = ZoneContainer.TargetFor(r.Slot, ZoneMath.Resolve(new ZoneLayout("", "", r.StartZones), f, spacing));
+        var visible = WindowQuery.Snapshot(hwnd).Bounds;
+
+        var zones = r.StartZones;
+        void Follow(ZoneDividers.Edge edge, int now, int was)
+        {
+            if (Math.Abs(now - was) <= 2) return;
+            if (ZoneDividers.ForEdge(r.StartZones, r.Slot.Zones, edge) is not { } d) return;
+
+            // The divider sits half a gap beyond the window's visible edge.
+            var trailing = edge is ZoneDividers.Edge.Right or ZoneDividers.Edge.Bottom;
+            var line = trailing ? now + spacing / 2.0 : now - spacing / 2.0;
+            var position = d.Vertical ? (line - f.X) / f.Width : (line - f.Y) / f.Height;
+            var min = d.Vertical ? MinZoneWidth / (double)f.Width : MinZoneHeight / (double)f.Height;
+            zones = ZoneDividers.Move(zones, d, position, min);
+        }
+
+        Follow(ZoneDividers.Edge.Left, visible.X, target.X);
+        Follow(ZoneDividers.Edge.Right, visible.Right, target.Right);
+        Follow(ZoneDividers.Edge.Top, visible.Y, target.Y);
+        Follow(ZoneDividers.Edge.Bottom, visible.Bottom, target.Bottom);
+
+        c.CustomZones = zones;
+        var resolved = c.Zones(spacing);
+        var moves = c.Slots.Values
+            .Where(s => s.Handle != (long)hwnd)
+            .Select(s => ((IntPtr)s.Handle, r.Margins.GetValueOrDefault(s.Handle).Grow(ZoneContainer.TargetFor(s, resolved))))
+            .ToList();
+        WindowPlacer.PlaceTogether(moves);
+    }
+
+    /// <summary>The resize ended: settle every window (the resized one included) exactly into its zones.</summary>
+    public void ResizeEnded(IntPtr hwnd)
+    {
+        if (_resize is not { } r || r.Slot.Handle != (long)hwnd) return;
+        _resize = null;
+        Reflow(r.Container);
+        Save();
+        SyncHandles();
+    }
+
+    /// <summary>Back to the preset's own proportions.</summary>
+    private void EvenOut(ZoneContainer c)
+    {
+        if (c.CustomZones is null) return;
+        c.CustomZones = null;
+        Reflow(c);
+        Save();
+        SyncHandles();
     }
 
     /// <summary>Let every window go — each back to the size and place it had before it was snapped — and
@@ -354,13 +534,19 @@ internal sealed class ZoneContainerService : IDisposable
 
     // ---- Moving / resizing ----
 
-    private void BeginDrag(ZoneContainer c, ContainerHandleWindow.Kind kind)
+    private void BeginDrag(ZoneContainer c, DragKind kind, int dividerIndex)
     {
         Prune();
+        var dividers = c.Dividers();
+        var divider = kind == DragKind.Divider && dividerIndex >= 0 && dividerIndex < dividers.Count
+            ? dividers[dividerIndex]
+            : null;
+        if (kind == DragKind.Divider && divider is null) return;
+
         // Margins are measured once up front — they don't change mid-drag, and re-reading every frame
         // would cost a cross-process query per window per tick.
         var margins = c.Slots.Keys.ToDictionary(h => h, h => WindowPlacer.MarginsOf((IntPtr)h));
-        _drag = new DragState(c, kind, margins);
+        _drag = new DragState(c, kind, divider, margins);
         _apply.Start();
     }
 
@@ -368,14 +554,17 @@ internal sealed class ZoneContainerService : IDisposable
     {
         if (_drag?.Container != c) return;
 
-        if (_drag.Kind == ContainerHandleWindow.Kind.Chip)
+        if (_drag.Kind == DragKind.Move)
         {
             c.Frame = ZoneContainer.Offset(_drag.StartFrame, dx, dy);
         }
-        else
+        else if (_drag.Divider is { } d)
         {
-            var work = MonitorOf(c)?.WorkArea ?? _drag.StartFrame;
-            c.Frame = ZoneContainer.ResizeFromCorner(_drag.StartFrame, dx, dy, work);
+            // Pixels → fraction of the frame; never squeeze a zone below a usable size.
+            var f = c.Frame;
+            var position = d.Vertical ? d.Position + dx / (double)f.Width : d.Position + dy / (double)f.Height;
+            var min = d.Vertical ? MinZoneWidth / (double)f.Width : MinZoneHeight / (double)f.Height;
+            c.CustomZones = ZoneDividers.Move(_drag.StartZones, d, position, min);
         }
         _drag.Pending = true;
     }
@@ -385,7 +574,7 @@ internal sealed class ZoneContainerService : IDisposable
         if (_drag is not { Pending: true } d) return;
         d.Pending = false;
 
-        var zones = d.Container.Zones(_settings().ZoneSpacing);
+        var zones = d.Container.Zones(_settings().EffectiveZoneSpacing);
         var moves = d.Container.Slots.Values
             .Select(s => ((IntPtr)s.Handle,
                 d.Margins.GetValueOrDefault(s.Handle).Grow(ZoneContainer.TargetFor(s, zones))))
@@ -404,7 +593,7 @@ internal sealed class ZoneContainerService : IDisposable
         _apply.Stop();
         _drag = null;
 
-        if (d.Kind == ContainerHandleWindow.Kind.Chip)
+        if (d.Kind == DragKind.Move)
             Land(c, d);
 
         // Fit with fresh margins: a window that changed monitor may also have changed DPI (and border size).
@@ -452,7 +641,7 @@ internal sealed class ZoneContainerService : IDisposable
     /// <summary>Put every slotted window back into its zones (fresh margins).</summary>
     private void Reflow(ZoneContainer c)
     {
-        var zones = c.Zones(_settings().ZoneSpacing);
+        var zones = c.Zones(_settings().EffectiveZoneSpacing);
         foreach (var s in c.Slots.Values)
             WindowPlacer.Fit((IntPtr)s.Handle, ZoneContainer.TargetFor(s, zones));
         if (_handles.TryGetValue(c, out var h))

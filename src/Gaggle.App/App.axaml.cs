@@ -70,6 +70,7 @@ public partial class App : Application
             _containers.Unslotted += hwnd => _controller.LeaveZoneGaggle(hwnd);
             _containers.Rehomed += (from, to) => _registry.RehomeZoneGaggle(from, to.DeviceName, $"Zones · {to.ShortName}");
             _containers.LayoutPicked += ApplyLayout;
+            _containers.GapsToggled += SetGaps;
             _containers.MinimiseRequested += device =>
             {
                 if (_registry.ForZoneMonitor(device) is { } g) _controller.Minimise(g);
@@ -210,6 +211,14 @@ public partial class App : Application
         gaggle.Click += (_, _) => UpdateSettings(_settings with { ZonesFormGaggle = !_settings.ZonesFormGaggle });
         sub.Add(gaggle);
 
+        var gaps = new NativeMenuItem($"Gaps between windows ({_settings.ZoneSpacing} px)")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.ZoneGaps,
+        };
+        gaps.Click += (_, _) => SetGaps(!_settings.ZoneGaps);
+        sub.Add(gaps);
+
         sub.Add(new NativeMenuItemSeparator());
 
         // One layout picker per monitor. Picking a layout flashes it on that monitor.
@@ -271,6 +280,14 @@ public partial class App : Application
         restore.Click += (_, _) => UpdateSettings(_settings with { RestoreSizeDuringDrag = !_settings.RestoreSizeDuringDrag });
         sub.Add(restore);
 
+        var linkedResize = new NativeMenuItem("Resizing a zoned window moves its neighbours")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.LinkedResize,
+        };
+        linkedResize.Click += (_, _) => UpdateSettings(_settings with { LinkedResize = !_settings.LinkedResize });
+        sub.Add(linkedResize);
+
         var taskbar = new NativeMenuItem("Taskbar button for each gaggle")
         {
             ToggleType = MenuItemToggleType.CheckBox,
@@ -280,6 +297,14 @@ public partial class App : Application
         sub.Add(taskbar);
 
         return new NativeMenuItem("Experiments") { Menu = sub };
+    }
+
+    /// <summary>Gaps on/off (from the tray or a layout tab): every layout re-flows straight away.</summary>
+    private void SetGaps(bool on)
+    {
+        if (_settings.ZoneGaps == on) return;
+        UpdateSettings(_settings with { ZoneGaps = on });
+        _containers?.ReflowAll();
     }
 
     /// <summary>Pick a monitor's layout (from the tray or a layout chip): remember it, re-flow the windows

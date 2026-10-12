@@ -138,13 +138,25 @@ public class ZoneContainerTests
     }
 
     [Fact]
-    public void Resize_keeps_the_top_left_and_respects_limits()
+    public void Custom_splits_apply_and_reset_with_a_new_preset()
     {
-        var start = new PixelRect(100, 100, 1000, 600);
-        Assert.Equal(new PixelRect(100, 100, 1200, 500), ZoneContainer.ResizeFromCorner(start, 200, -100, Work));
-        Assert.Equal(new PixelRect(100, 100, ZoneContainer.MinWidth, ZoneContainer.MinHeight),
-            ZoneContainer.ResizeFromCorner(start, -5000, -5000, Work));
-        Assert.Equal(PixelRect.FromEdges(100, 100, 1920, 1040), ZoneContainer.ResizeFromCorner(start, 5000, 5000, Work));
+        var c = new ZoneContainer(@"\\.\DISPLAY1", "columns-2", new PixelRect(0, 0, 1000, 500));
+        c.CustomZones = [new ZoneFraction(0, 0, 0.7, 1), new ZoneFraction(0.7, 0, 0.3, 1)];
+        Assert.Equal(new PixelRect(0, 0, 700, 500), c.Zones(spacing: 0)[0]);
+
+        c.LayoutId = "columns-2";   // picking a preset (even the same one) evens it out
+        Assert.Null(c.CustomZones);
+        Assert.Equal(new PixelRect(0, 0, 500, 500), c.Zones(spacing: 0)[0]);
+    }
+
+    [Fact]
+    public void Custom_splits_for_a_different_zone_count_are_ignored()
+    {
+        var c = new ZoneContainer(@"\\.\DISPLAY1", "columns-3", new PixelRect(0, 0, 900, 500))
+        {
+            CustomZones = [new ZoneFraction(0, 0, 0.7, 1), new ZoneFraction(0.7, 0, 0.3, 1)],
+        };
+        Assert.Equal(3, c.Zones(spacing: 0).Count);
     }
 
     [Fact]

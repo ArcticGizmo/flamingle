@@ -35,6 +35,13 @@ public sealed record AppSettings
     /// <summary>Gap between zones (and around the edge of the work area), in physical pixels.</summary>
     public int ZoneSpacing { get; init; } = 8;
 
+    /// <summary>Gaps on/off (quick toggle in the layout tab). Off lays zones flush, keeping
+    /// <see cref="ZoneSpacing"/> for when they're switched back on.</summary>
+    public bool ZoneGaps { get; init; } = true;
+
+    /// <summary>The spacing actually used: <see cref="ZoneSpacing"/>, or 0 with gaps off.</summary>
+    public int EffectiveZoneSpacing => ZoneGaps ? Math.Max(0, ZoneSpacing) : 0;
+
     /// <summary>Layout id per monitor device name (e.g. <c>\\.\DISPLAY1</c> → <c>columns-3</c>). Monitors not
     /// listed use <see cref="Zones.ZoneLayout.DefaultId"/>.</summary>
     public Dictionary<string, string> ZoneLayouts { get; init; } = [];
@@ -46,6 +53,10 @@ public sealed record AppSettings
     /// <summary>Experimental: a window pulled out of its zones shrinks back to its pre-snap size as soon as the
     /// drag starts (like FancyZones / Windows Snap), rather than when it's dropped.</summary>
     public bool RestoreSizeDuringDrag { get; init; } = true;
+
+    /// <summary>Experimental: resizing a zoned window by an inner edge moves that split, and the windows on the
+    /// other side follow (like Windows 11 Snap Groups).</summary>
+    public bool LinkedResize { get; init; } = true;
 
     /// <summary>Experimental: give every gaggle its own taskbar button (icon made from its apps' icons);
     /// clicking it minimises / restores the gaggle.</summary>

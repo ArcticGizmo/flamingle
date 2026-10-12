@@ -111,7 +111,14 @@ internal sealed class ZoneDragService : IDisposable
             drag.IsResize ??= !drag.StartedMaximised
                 && (now.Width != drag.StartRect.Width || now.Height != drag.StartRect.Height);
         }
-        if (drag.IsResize == true || drag.Restarting) { ClearSelection(drag); return; }
+        if (drag.IsResize == true)
+        {
+            // Resizing a zoned window by its edge moves its splits (if it's in a layout).
+            ClearSelection(drag);
+            _containers.ResizeTick(drag.Hwnd);
+            return;
+        }
+        if (drag.Restarting) { ClearSelection(drag); return; }
 
         if (!Win32.GetCursorPos(out var cursor)) return;
         if (drag.IsResize == false)
@@ -256,7 +263,12 @@ internal sealed class ZoneDragService : IDisposable
         Tick();
         EndDrag();
 
-        if (drag.IsResize == true || !drag.Moved) return;
+        if (drag.IsResize == true)
+        {
+            _containers.ResizeEnded(hwnd);
+            return;
+        }
+        if (!drag.Moved) return;
         if (drag.Selection.Count > 0 && drag.Monitor is { } monitor)
         {
             var target = ZoneMath.Bounds(drag.Zones, drag.Selection);

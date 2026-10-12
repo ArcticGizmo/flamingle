@@ -57,15 +57,40 @@ public sealed class ZoneContainer
     /// <summary>The monitor the container currently lives on.</summary>
     public string DeviceName { get; set; }
 
-    public string LayoutId { get; set; }
+    /// <summary>The preset. Setting it clears any custom splits.</summary>
+    public string LayoutId
+    {
+        get => _layoutId;
+        set
+        {
+            _layoutId = value;
+            CustomZones = null;
+        }
+    }
+
+    private string _layoutId = "";
+
+    /// <summary>The preset's zones after the user dragged its dividers, or null for the preset as-is.</summary>
+    public IReadOnlyList<ZoneFraction>? CustomZones { get; set; }
 
     public PixelRect Frame { get; set; }
 
     public Dictionary<long, ZoneSlot> Slots { get; } = [];
 
-    public ZoneLayout Layout => ZoneLayout.ById(LayoutId);
+    /// <summary>The preset, with any custom splits applied.</summary>
+    public ZoneLayout Layout
+    {
+        get
+        {
+            var preset = ZoneLayout.ById(LayoutId);
+            // Custom splits only make sense for the preset they were made from (same zone count).
+            return CustomZones is { } custom && custom.Count == preset.Zones.Count ? preset with { Zones = custom } : preset;
+        }
+    }
 
     public IReadOnlyList<PixelRect> Zones(int spacing) => ZoneMath.Resolve(Layout, Frame, spacing);
+
+    public IReadOnlyList<ZoneDivider> Dividers() => ZoneDividers.Find(Layout.Zones);
 
     /// <summary>Where a slot's window belongs for the given zones. Indices past the end (after switching to
     /// a layout with fewer zones) fall back to the last zone.</summary>
@@ -89,27 +114,20 @@ public sealed class ZoneContainer
         return new PixelRect(x, y, w, h);
     }
 
-    /// <summary>Resize from the bottom-right corner by (<paramref name="dx"/>, <paramref name="dy"/>), keeping
-    /// the top-left fixed, within the minimum size and the work area.</summary>
-    public static PixelRect ResizeFromCorner(PixelRect start, int dx, int dy, PixelRect workArea)
-    {
-        var right = Math.Clamp(start.Right + dx, start.X + Math.Min(MinWidth, workArea.Width), workArea.Right);
-        var bottom = Math.Clamp(start.Bottom + dy, start.Y + Math.Min(MinHeight, workArea.Height), workArea.Bottom);
-        return PixelRect.FromEdges(start.X, start.Y, right, bottom);
-    }
-
     /// <summary>Move the frame by an offset (no clamping — that happens on drop).</summary>
     public static PixelRect Offset(PixelRect frame, int dx, int dy) => frame with { X = frame.X + dx, Y = frame.Y + dy };
 }
 
 /// <summary>The on-disk form of the containers (<c>zones.json</c>).</summary>
-public sealed record ZoneContainerState(string DeviceName, string LayoutId, PixelRect Frame, List<ZoneSlot> Slots)
+public sealed record ZoneContainerState(
+    string DeviceName, string LayoutId, PixelRect Frame, List<ZoneSlot> Slots, List<ZoneFraction>? CustomZones = null)
 {
-    public static ZoneContainerState From(ZoneContainer c) => new(c.DeviceName, c.LayoutId, c.Frame, [.. c.Slots.Values]);
+    public static ZoneContainerState From(ZoneContainer c)
+        => new(c.DeviceName, c.LayoutId, c.Frame, [.. c.Slots.Values], c.CustomZones?.ToList());
 
     public ZoneContainer ToContainer(Func<ZoneSlot, bool> isAlive)
     {
-        var c = new ZoneContainer(DeviceName, LayoutId, Frame);
+        var c = new ZoneContainer(DeviceName, LayoutId, Frame) { CustomZones = CustomZones };
         foreach (var s in Slots.Where(isAlive)) c.Slots[s.Handle] = s;
         return c;
     }

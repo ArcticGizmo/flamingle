@@ -17,23 +17,20 @@ internal enum ChipAction
     FillScreen,
     MinimiseLayout,
     ReleaseWindows,
+    EvenOutSplits,
+    AdjustSplits,
 }
 
 /// <summary>
-/// A floating handle for a zone container.
-/// <list type="bullet">
-/// <item><see cref="Kind.Chip"/> — a small tab on the layout's top edge. Drag it to move the whole layout;
-/// click it to expand a panel of layout presets and actions; double-click to fill the monitor.</item>
-/// <item><see cref="Kind.Resize"/> — a grip in the layout's bottom-right corner. Drag to resize.</item>
-/// </list>
+/// The layout's pull-tab: a small tab hanging from the layout's top edge. Drag it to move the whole layout;
+/// click it to expand a panel of layout presets and actions; double-click to fill the monitor.
 /// Never activated (grabbing it doesn't pull focus from the layout's windows) and not topmost — the
 /// service lifts it just above the layout when one of the layout's windows is in front, so other apps can
-/// still cover it. Drag offsets are physical screen pixels, read straight from the cursor.
+/// still cover it (while expanded it's topmost). Drag offsets are physical screen pixels, read straight
+/// from the cursor.
 /// </summary>
 internal sealed class ContainerHandleWindow : Window
 {
-    public enum Kind { Chip, Resize }
-
     // Movement (physical px) before a press on the chip counts as a drag rather than a click.
     private const int DragThreshold = 4;
 
@@ -47,6 +44,9 @@ internal sealed class ContainerHandleWindow : Window
     private readonly TextBlock _label = new() { Foreground = Palette.Fg, FontSize = 13, FontWeight = FontWeight.SemiBold };
     private readonly Border _panel = new() { IsVisible = false };
     private readonly WrapPanel _presets = new() { MaxWidth = 340 };
+    private readonly CheckBox _gaps = new() { Content = "Gaps between windows", FontSize = 12 };
+    private Button? _adjust;
+    private bool _settingGaps;
     private Path? _tab;
 
     private Win32.POINT _pressAt;
@@ -54,9 +54,8 @@ internal sealed class ContainerHandleWindow : Window
     private bool _dragging;
     private string? _currentLayout;
 
-    public ContainerHandleWindow(Kind kind)
+    public ContainerHandleWindow()
     {
-        HandleKind = kind;
         WindowDecorations = WindowDecorations.None;
         Background = Brushes.Transparent;
         TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
@@ -67,10 +66,8 @@ internal sealed class ContainerHandleWindow : Window
         SizeToContent = SizeToContent.WidthAndHeight;
         WindowStartupLocation = WindowStartupLocation.Manual;
 
-        Content = kind == Kind.Chip ? BuildChip() : BuildGrip();
+        Content = BuildChip();
     }
-
-    public Kind HandleKind { get; }
 
     public bool IsDragging => _dragging;
 
@@ -99,6 +96,24 @@ internal sealed class ContainerHandleWindow : Window
         _label.Text = text;
         if (_tab?.Parent is Control tab)
             ToolTip.SetTip(tab, $"{text}\nDrag to move the layout · click for layouts and actions · double-click to fill the screen");
+    }
+
+    /// <summary>The gaps toggle was flipped (new value).</summary>
+    public event Action<bool>? GapsToggled;
+
+    /// <summary>Whether the divider strips are showing (the Adjust splits button reads "Done adjusting").</summary>
+    public void SetAdjusting(bool on)
+    {
+        if (_adjust is not null) _adjust.Content = on ? "Done adjusting" : "Adjust splits";
+    }
+
+    /// <summary>Reflect the current gaps setting without raising <see cref="GapsToggled"/>.</summary>
+    public void SetGaps(bool on)
+    {
+        if (_gaps.IsChecked == on) return;
+        _settingGaps = true;
+        _gaps.IsChecked = on;
+        _settingGaps = false;
     }
 
     /// <summary>Highlight the current layout among the presets.</summary>
@@ -168,6 +183,7 @@ internal sealed class ContainerHandleWindow : Window
                 _label,
                 Caption("Layout"),
                 _presets,
+                _gaps,
                 Caption("Windows"),
                 new WrapPanel
                 {
@@ -177,12 +193,18 @@ internal sealed class ContainerHandleWindow : Window
                         ActionButton("Fill with open windows", ChipAction.FillWithOpenWindows),
                         ActionButton("Fill screen", ChipAction.FillScreen),
                         ActionButton("Minimise layout", ChipAction.MinimiseLayout),
+                        (_adjust = ActionButton("Adjust splits", ChipAction.AdjustSplits)),
+                        ActionButton("Even out splits", ChipAction.EvenOutSplits),
                         ActionButton("Release windows", ChipAction.ReleaseWindows),
                     },
                 },
             },
         };
         BuildPresets();
+        _gaps.IsCheckedChanged += (_, _) =>
+        {
+            if (!_settingGaps) GapsToggled?.Invoke(_gaps.IsChecked == true);
+        };
 
         return new StackPanel { Children = { tab, _panel } };
     }
@@ -229,30 +251,6 @@ internal sealed class ContainerHandleWindow : Window
     private static TextBlock Caption(string text)
         => new() { Text = text, Foreground = Palette.Muted, FontSize = 11 };
 
-    private static Control BuildGrip()
-    {
-        var grip = new Border
-        {
-            Width = 18,
-            Height = 18,
-            Background = Palette.ToastBg,
-            BorderBrush = Palette.AccentBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4, 0, 4, 0),
-            Cursor = new Cursor(StandardCursorType.BottomRightCorner),
-            Child = new TextBlock
-            {
-                Text = "◢",
-                Foreground = Palette.AccentBrush,
-                FontSize = 11,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
-        };
-        ToolTip.SetTip(grip, "Drag to resize the layout");
-        return grip;
-    }
-
     private void SetExpanded(bool expanded)
     {
         if (_panel.IsVisible == expanded) return;
@@ -291,9 +289,6 @@ internal sealed class ContainerHandleWindow : Window
         Win32.GetCursorPos(out _pressAt);
         _pressed = true;
         e.Pointer.Capture(this);
-
-        // The grip has nothing to click — every press is a drag.
-        if (HandleKind == Kind.Resize) StartDrag();
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -314,7 +309,7 @@ internal sealed class ContainerHandleWindow : Window
 
         var wasDrag = _dragging;
         Finish(e.Pointer);
-        if (!wasDrag && HandleKind == Kind.Chip) SetExpanded(!IsExpanded);
+        if (!wasDrag) SetExpanded(!IsExpanded);
     }
 
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
