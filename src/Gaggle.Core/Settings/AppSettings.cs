@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Gaggle.Core.Settings;
 
 /// <summary>
@@ -40,6 +42,7 @@ public sealed record AppSettings
     public bool ZoneGaps { get; init; } = true;
 
     /// <summary>The spacing actually used: <see cref="ZoneSpacing"/>, or 0 with gaps off.</summary>
+    [JsonIgnore]
     public int EffectiveZoneSpacing => ZoneGaps ? Math.Max(0, ZoneSpacing) : 0;
 
     /// <summary>Layout id per monitor device name (e.g. <c>\\.\DISPLAY1</c> → <c>columns-3</c>). Monitors not
@@ -53,6 +56,10 @@ public sealed record AppSettings
     /// <summary>Experimental: a window pulled out of its zones shrinks back to its pre-snap size as soon as the
     /// drag starts (like FancyZones / Windows Snap), rather than when it's dropped.</summary>
     public bool RestoreSizeDuringDrag { get; init; } = true;
+
+    /// <summary>How far (physical px) a zoned window must be dragged from where it was grabbed before it
+    /// shrinks back. Holding the zone modifier (Shift) before then keeps its zone size for the whole drag.</summary>
+    public int RestoreSizeAfterPixels { get; init; } = 144;
 
     /// <summary>Experimental: resizing a zoned window by an inner edge moves that split, and the windows on the
     /// other side follow (like Windows 11 Snap Groups).</summary>

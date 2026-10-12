@@ -124,7 +124,7 @@ internal sealed class ZoneDragService : IDisposable
         if (drag.IsResize == false)
         {
             CheckRestoreStuck(drag, cursor);
-            RestoreSizeOnce(drag, cursor);
+            MaybeRestoreSize(drag, cursor);
         }
 
         if (!ModifierHeld(_settings().ZoneDragModifier)) { ClearSelection(drag); return; }
@@ -161,9 +161,37 @@ internal sealed class ZoneDragService : IDisposable
     /// keeping the grabbed point under the pointer — the way Windows Snap and FancyZones do. It stays in its
     /// layout until the drop: dropping it into zones again (Shift) just snaps it back.
     /// </summary>
+    /// <summary>
+    /// Decide whether this drag is pulling the window out of its layout: only once it's travelled
+    /// <see cref="AppSettings.RestoreSizeAfterPixels"/> from where it was grabbed. Holding the zone modifier
+    /// before that means "moving between zones" — keep the zone size for the whole drag.
+    /// </summary>
+    private void MaybeRestoreSize(Drag drag, Win32.POINT cursor)
+    {
+        var s = _settings();
+        if (drag.SizeRestored || !s.RestoreSizeDuringDrag) return;
+
+        var modifierIsKey = !string.Equals(s.ZoneDragModifier?.Trim(), "none", StringComparison.OrdinalIgnoreCase)
+                            && !string.IsNullOrWhiteSpace(s.ZoneDragModifier);
+        if (modifierIsKey && ModifierHeld(s.ZoneDragModifier))
+        {
+            drag.SizeRestored = true;   // decided: no restore this drag
+            if (_containers.SlotOf(drag.Hwnd) is not null)
+                DebugLog.Write($"{s.ZoneDragModifier} held before the threshold — keeping the zone size");
+            return;
+        }
+
+        var dx = cursor.x - drag.Grab.x;
+        var dy = cursor.y - drag.Grab.y;
+        var threshold = Math.Max(0, s.RestoreSizeAfterPixels);
+        if (dx * dx + dy * dy < threshold * threshold) return;
+
+        RestoreSizeOnce(drag, cursor);
+    }
+
     private void RestoreSizeOnce(Drag drag, Win32.POINT cursor)
     {
-        if (drag.SizeRestored || !_settings().RestoreSizeDuringDrag) return;
+        if (drag.SizeRestored) return;
         drag.SizeRestored = true;
 
         if (_containers.SlotOf(drag.Hwnd) is not { Restore: { } restore }) return;
