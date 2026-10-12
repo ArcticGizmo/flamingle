@@ -29,7 +29,8 @@ templates are 2/3 columns, priority 25/50/25, main + side stack, 2×2 and 2×3 g
 
 **The layout tab.** Each monitor's zones act as one container. While its windows are on screen, a
 small pull-tab hangs from the layout's top edge. It sits just above the layout's windows, so another
-app in front covers it.
+app in front covers it. If it's buried, rest the cursor near where it should be for about a third of
+a second and it pops to the top. It drops back shortly after the cursor moves away.
 
 **Changing the splits.**
 - **Resize a zoned window by an inner edge** (its normal resize border), and the windows on the other

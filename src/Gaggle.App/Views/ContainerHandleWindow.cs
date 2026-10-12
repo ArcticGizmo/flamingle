@@ -35,8 +35,10 @@ internal sealed class ContainerHandleWindow : Window
     private const int DragThreshold = 4;
 
     // The pull-tab: a trapezoid hanging from the layout's top edge, with a grip mark.
-    private const double TabWidth = 64;
-    private const double TabHeight = 20;
+    // Kept small and flat so it stays clear of the title-bar buttons of the windows beneath it.
+    public const double TabWidth = 36;
+    private const double TabHeight = 10;
+    private const double TabTaper = 6;
 
     private static readonly IBrush TabFill = new SolidColorBrush(Color.Parse("#E60D1218"));
     private static readonly IBrush TabFillHot = new SolidColorBrush(Color.Parse("#F21E2A36"));
@@ -126,6 +128,18 @@ internal sealed class ContainerHandleWindow : Window
 
     public void Collapse() => SetExpanded(false);
 
+    /// <summary>True while the tab is lifted above everything because the cursor lingered near it.</summary>
+    public bool IsPeeking { get; private set; }
+
+    /// <summary>Lift the tab above everything (or let it drop back) — used when the cursor lingers near it,
+    /// so a tab buried under the layout's own content can still be reached.</summary>
+    public void SetPeek(bool peek)
+    {
+        if (IsPeeking == peek) return;
+        IsPeeking = peek;
+        Topmost = peek || IsExpanded;
+    }
+
     /// <summary>The handle's size in physical pixels at the given DPI scale.</summary>
     public PixelSize PixelSizeAt(double scale)
     {
@@ -139,10 +153,11 @@ internal sealed class ContainerHandleWindow : Window
         // Trapezoid: full width along the layout's edge, tapering as it hangs down.
         _tab = new Path
         {
-            Data = Geometry.Parse($"M 0.75,0 L {TabWidth - 0.75},0 L {TabWidth - 10},{TabHeight - 0.75} L 10,{TabHeight - 0.75} Z"),
+            Data = Geometry.Parse(
+                $"M 0.5,0 L {TabWidth - 0.5},0 L {TabWidth - TabTaper},{TabHeight - 0.5} L {TabTaper},{TabHeight - 0.5} Z"),
             Fill = TabFill,
             Stroke = Palette.AccentBrush,
-            StrokeThickness = 1.5,
+            StrokeThickness = 1,
             StrokeJoin = PenLineJoin.Round,
         };
         var tab = new Grid
@@ -158,10 +173,10 @@ internal sealed class ContainerHandleWindow : Window
                 // The grip: two short bars, like a drawer pull.
                 new StackPanel
                 {
-                    Spacing = 3,
+                    Spacing = 1.5,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, -2, 0, 0),
+                    Margin = new Thickness(0, -1, 0, 0),
                     Children = { GripBar(), GripBar() },
                 },
             },
@@ -211,10 +226,10 @@ internal sealed class ContainerHandleWindow : Window
 
     private static Rectangle GripBar() => new()
     {
-        Width = 16,
-        Height = 2,
-        RadiusX = 1,
-        RadiusY = 1,
+        Width = 12,
+        Height = 1.5,
+        RadiusX = 0.75,
+        RadiusY = 0.75,
         Fill = Palette.AccentBrush,
     };
 
@@ -257,7 +272,7 @@ internal sealed class ContainerHandleWindow : Window
         _panel.IsVisible = expanded;
         // The open panel floats over everything (even the layout's own windows); collapsed, the tab goes back
         // to normal stacking so other apps can cover it — the service re-places it after this.
-        Topmost = expanded;
+        Topmost = expanded || IsPeeking;
         ExpandedChanged?.Invoke();
     }
 

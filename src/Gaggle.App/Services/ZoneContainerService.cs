@@ -55,11 +55,21 @@ internal sealed class ZoneContainerService : IDisposable
     // Divider strips are at least this thick (DIP), even when the zones have no spacing between them.
     private const double MinDividerThickness = 8;
 
+    // Hover-to-reveal: the cursor lingering this close to a tab (DIP) for this long lifts the tab above
+    // everything; it drops back once the cursor has been away for the grace period.
+    private const double HoverReach = 36;
+    private static readonly TimeSpan HoverDwell = TimeSpan.FromMilliseconds(350);
+    private static readonly TimeSpan HoverGrace = TimeSpan.FromMilliseconds(700);
+
     private sealed class Handles(ContainerHandleWindow chip)
     {
         public ContainerHandleWindow Chip { get; } = chip;
         public List<DividerHandleWindow> Dividers { get; } = [];
         public IEnumerable<Window> All => [Chip, .. Dividers];
+
+        public double Scale { get; set; } = 1.0;
+        public DateTime? NearSince { get; set; }
+        public DateTime? AwaySince { get; set; }
     }
 
     private enum DragKind { Move, Divider }
@@ -88,7 +98,12 @@ internal sealed class ZoneContainerService : IDisposable
         // Window moves during a handle drag are coalesced to one batch per frame.
         _apply = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(16) };
         _apply.Tick += (_, _) => ApplyPendingDrag();
+
+        _hover = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
+        _hover.Tick += (_, _) => HoverTick();
     }
+
+    private readonly DispatcherTimer _hover;
 
     /// <summary>A window was put into a layout's zones (by drag, or "fill with open windows").</summary>
     public event Action<IntPtr, MonitorInfo>? Slotted;
@@ -133,6 +148,7 @@ internal sealed class ZoneContainerService : IDisposable
 
         _hooks.ForegroundChanged += OnForegroundChanged;
         _sync.Start();
+        _hover.Start();
     }
 
     // ---- Queries used by the drag-to-snap overlay ----
@@ -342,29 +358,94 @@ internal sealed class ZoneContainerService : IDisposable
             Notice?.Invoke($"{c.Layout.Name} has only one zone — nothing to split.");
     }
 
+    /// <summary>
+    /// The tab normally sits just above its layout, so the layout's own windows (or anything brought in
+    /// front) can bury it. If the cursor lingers near a tab, lift it above everything; once the cursor has
+    /// been away for a moment (and the panel's closed), let it drop back.
+    /// </summary>
+    private void HoverTick()
+    {
+        if (_handles.Count == 0 || !Win32.GetCursorPos(out var cursor)) return;
+        var now = DateTime.UtcNow;
+
+        foreach (var (c, h) in _handles.ToList())
+        {
+            var size = h.Chip.PixelSizeAt(h.Scale);
+            var reach = (int)(HoverReach * h.Scale);
+            var pos = h.Chip.Position;
+            var near = cursor.x >= pos.X - reach && cursor.x < pos.X + size.Width + reach
+                    && cursor.y >= pos.Y - reach && cursor.y < pos.Y + size.Height + reach;
+
+            if (near)
+            {
+                h.AwaySince = null;
+                h.NearSince ??= now;
+                if (!h.Chip.IsPeeking && now - h.NearSince >= HoverDwell)
+                    h.Chip.SetPeek(true);
+            }
+            else
+            {
+                h.NearSince = null;
+                if (!h.Chip.IsPeeking || h.Chip.IsExpanded || _drag?.Container == c) continue;
+                h.AwaySince ??= now;
+                if (now - h.AwaySince < HoverGrace) continue;
+
+                h.AwaySince = null;
+                h.Chip.SetPeek(false);
+                PlaceHandlesInZOrder(c, h);
+            }
+        }
+    }
+
     private void PositionHandles(ZoneContainer c, Handles h, MonitorInfo? monitor)
     {
         var scale = monitor?.Scale ?? 1.0;
+        h.Scale = scale;
         var f = c.Frame;
 
         // The tab hangs from the frame's top edge, centred; the expanded panel opens downward beneath it.
+        var dividers = c.Dividers();
+        var zones = c.Zones(_settings().EffectiveZoneSpacing);
+        // Place the (collapsed) tab first, then centre the window on it — so opening the panel doesn't make the
+        // tab jump.
+        var tabWidth = (int)Math.Ceiling(ContainerHandleWindow.TabWidth * scale);
+        var tabX = AvoidCaptionButtons(f.X + (f.Width - tabWidth) / 2, tabWidth, dividers, zones, scale);
         var chip = h.Chip.PixelSizeAt(scale);
-        h.Chip.Position = new PixelPoint(f.X + (f.Width - chip.Width) / 2, f.Y);
+        h.Chip.Position = new PixelPoint(tabX + tabWidth / 2 - chip.Width / 2, f.Y);
 
         // Each divider strip covers the gap between its zones.
-        var dividers = c.Dividers();
         if (dividers.Count != h.Dividers.Count) return;
-        var zones = c.Zones(_settings().EffectiveZoneSpacing);
         var thickness = (int)Math.Ceiling(MinDividerThickness * scale);
         for (var i = 0; i < dividers.Count; i++)
             h.Dividers[i].Place(ZoneDividers.HandleRect(dividers[i], zones, thickness), scale);
+    }
+
+    // Roughly the width of a window's minimise / maximise / close buttons (DIP), and the nudge past a split.
+    private const double CaptionButtonsWidth = 140;
+    private const double TabNudge = 12;
+
+    /// <summary>
+    /// A vertical split that reaches the top puts the left window's close button right next to the centre.
+    /// If the tab would sit over a window's caption buttons (just left of such a split), move it to just right
+    /// of the split instead — over the start of the next window's title bar.
+    /// </summary>
+    private static int AvoidCaptionButtons(int x, int width, IReadOnlyList<ZoneDivider> dividers, IReadOnlyList<PixelRect> zones, double scale)
+    {
+        var buttons = (int)(CaptionButtonsWidth * scale);
+        foreach (var d in dividers.Where(d => d.Vertical && d.Start < 1e-6).OrderBy(d => d.Position))
+        {
+            var gap = ZoneDividers.HandleRect(d, zones, minThickness: 0);
+            if (x < gap.Right && x + width > gap.X - buttons)
+                return gap.Right + (int)(TabNudge * scale);
+        }
+        return x;
     }
 
     /// <summary>Lift the tab above the layout: to the top if a layout window is in front, else just beneath
     /// whatever app is. (Divider strips are topmost while shown, so they're left alone.)</summary>
     private void PlaceHandlesInZOrder(ZoneContainer c, Handles h)
     {
-        if (h.Chip.IsExpanded) return;   // topmost while open
+        if (h.Chip.IsExpanded || h.Chip.IsPeeking) return;   // topmost while open / hovered
         var fg = Win32.GetForegroundWindow();
         var insertAfter = c.Slots.ContainsKey(fg) || fg == IntPtr.Zero ? IntPtr.Zero /* HWND_TOP */ : fg;
         var hwnd = h.Chip.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
@@ -704,6 +785,7 @@ internal sealed class ZoneContainerService : IDisposable
     {
         _sync.Stop();
         _apply.Stop();
+        _hover.Stop();
         foreach (var c in _handles.Keys.ToList()) HideHandles(c);
     }
 }
