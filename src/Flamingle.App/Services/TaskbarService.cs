@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using Flamingle.App.Native;
 using Flamingle.App.Views;
 using Flamingle.Core.Grouping;
@@ -29,11 +30,26 @@ internal sealed class TaskbarService : IDisposable
         public string IconKey { get; set; } = "";
     }
 
-    public TaskbarService(FlockRegistry registry, FlockController controller, Func<AppSettings> settings)
+    // Desktop switches cloak / uncloak a burst of windows — check once the burst has passed.
+    private static readonly TimeSpan DesktopCheckDelay = TimeSpan.FromMilliseconds(250);
+
+    private readonly DispatcherTimer _desktopCheck;
+
+    public TaskbarService(FlockRegistry registry, FlockController controller, WinEventHooks hooks,
+        Func<AppSettings> settings)
     {
         _registry = registry;
         _controller = controller;
         _settings = settings;
+
+        _desktopCheck = new DispatcherTimer { Interval = DesktopCheckDelay };
+        _desktopCheck.Tick += (_, _) =>
+        {
+            _desktopCheck.Stop();
+            FollowDesktops();
+        };
+        hooks.ForegroundChanged += _ => ScheduleDesktopCheck();
+        hooks.CloakChanged += _ => ScheduleDesktopCheck();
     }
 
     /// <summary>Bring the buttons in line with the current flocks (and the on/off setting).</summary>
@@ -62,7 +78,7 @@ internal sealed class TaskbarService : IDisposable
                 window.Show();
             }
 
-            proxy.Window.Title = $"{group.Name} — flock of{group.Members.Count}";
+            proxy.Window.Title = $"{group.Name} — flock of {group.Members.Count}";
 
             // Rebuilding the icon means asking every member app for its icon — only when membership changes.
             var key = string.Join(",", group.Members.Select(m => m.Handle));
@@ -71,6 +87,39 @@ internal sealed class TaskbarService : IDisposable
                 proxy.IconKey = key;
                 proxy.Window.Icon = Mosaic(group);
             }
+        }
+
+        FollowDesktops();
+    }
+
+    private void ScheduleDesktopCheck()
+    {
+        if (_proxies.Count == 0 || !_settings().TaskbarButtonFollowsDesktop) return;
+        _desktopCheck.Stop();
+        _desktopCheck.Start();
+    }
+
+    /// <summary>
+    /// Move each flock's button to the virtual desktop its windows are on. The taskbar (by default) only shows
+    /// buttons for windows on the current desktop, so a button left behind would be missing where the flock is.
+    /// </summary>
+    private void FollowDesktops()
+    {
+        if (!_settings().TaskbarButtonFollowsDesktop) return;
+
+        var focused = _controller.LastFocus;
+        foreach (var (id, proxy) in _proxies)
+        {
+            var hwnd = proxy.Window.Handle;
+            if (hwnd == IntPtr.Zero || _registry.Find(id) is not { } group) continue;
+
+            var members = group.Members.Select(m => m.Handle).ToList();
+            var desktops = members.Select(h => VirtualDesktops.DesktopOf((IntPtr)h) ?? Guid.Empty).ToList();
+            var focusIndex = members.IndexOf(focused);
+            Guid? focusedDesktop = focusIndex >= 0 ? desktops[focusIndex] : null;
+
+            if (FlockDesktop.Choose(desktops, focusedDesktop) is not { } target) continue;
+            if (VirtualDesktops.DesktopOf(hwnd) != target) VirtualDesktops.MoveTo(hwnd, target);
         }
     }
 
@@ -122,6 +171,7 @@ internal sealed class TaskbarService : IDisposable
 
     public void Dispose()
     {
+        _desktopCheck.Stop();
         foreach (var p in _proxies.Values) p.Window.CloseForGood();
         _proxies.Clear();
     }

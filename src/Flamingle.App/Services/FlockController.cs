@@ -35,11 +35,17 @@ internal sealed class FlockController
 
     private sealed record MinimisedState(IReadOnlyList<long> OrderTopFirst, Dictionary<long, PixelRect> Bounds);
 
+    // Zoned windows whose cloaking changed, waiting for the desktop-switch burst to pass.
+    private readonly HashSet<long> _cloakedZoneMembers = [];
+    private readonly DispatcherTimer _zoneDesktopCheck;
+
     public FlockController(FlockRegistry registry, WinEventHooks hooks, Func<AppSettings> settings)
     {
         _registry = registry;
         _hooks = hooks;
         _settings = settings;
+        _zoneDesktopCheck = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _zoneDesktopCheck.Tick += (_, _) => CheckZoneDesktops();
     }
 
     /// <summary>A short message for the user (shown as a toast).</summary>
@@ -56,6 +62,8 @@ internal sealed class FlockController
         _hooks.MinimiseStarted += OnMinimiseStarted;
         _hooks.MinimiseEnded += OnMinimiseEnded;
         _hooks.Destroyed += hwnd => _registry.RemoveWindow(hwnd);
+        _hooks.CloakChanged += OnCloakChanged;
+        AdoptZoneDesktops();
 
         var fg = Win32.GetForegroundWindow();
         if (WindowQuery.IsCandidate(fg)) LastFocus = fg;
@@ -156,28 +164,101 @@ internal sealed class FlockController
 
     /// <summary>
     /// A window was dropped into zones on <paramref name="monitor"/>: add it to that monitor's zone flock
-    /// (creating it on first use), so the zoned layout minimises / restores as one. Windows in a hand-picked
-    /// flock stay where they are; a window moving between monitors moves between zone flocks.
+    /// (creating it on first use), so the zoned layout minimises / restores as one. With
+    /// <see cref="AppSettings.ZoneFlockPerDesktop"/> each virtual desktop gets its own zone flock per monitor.
+    /// Windows in a hand-picked flock stay where they are; a window moving between monitors (or desktops)
+    /// moves between zone flocks.
     /// </summary>
     public void JoinZoneFlock(IntPtr hwnd, MonitorInfo monitor)
     {
         if (!_settings().ZonesFormFlock || !WindowQuery.IsCandidate(hwnd)) return;
+        JoinZoneFlock(hwnd, monitor.DeviceName, ZoneDesktopOf(hwnd));
+    }
+
+    private void JoinZoneFlock(IntPtr hwnd, string deviceName, Guid? desktop)
+    {
+        AdoptZoneDesktops();
 
         var current = _registry.FindByWindow(hwnd);
         if (current is { ZoneMonitor: null }) return;
-        if (current?.ZoneMonitor == monitor.DeviceName) return;
+        if (current?.ZoneMonitor == deviceName && (desktop is null || current.ZoneDesktop == desktop)) return;
 
         var member = WindowQuery.ToMember(WindowQuery.Snapshot(hwnd));
-        if (_registry.ForZoneMonitor(monitor.DeviceName) is { } group)
+        if (_registry.ForZone(deviceName, desktop) is { } group)
         {
             _registry.Add(group, member);
         }
         else
         {
-            group = _registry.Create($"Zones · {monitor.ShortName}", [member], monitor.DeviceName);
-            Notice?.Invoke($"Started a zone flock on {monitor.ShortName} (slot {_registry.SlotOf(group)}). " +
+            group = _registry.Create(ZoneFlockName(deviceName, desktop), [member], deviceName, desktop);
+            var where = desktop is { } d && VirtualDesktops.Label(d) is { } label
+                ? $"{ShortName(deviceName)} on {label}"
+                : ShortName(deviceName);
+            Notice?.Invoke($"Started a zone flock on {where} (slot {_registry.SlotOf(group)}). " +
                            "Windows you drop into zones there will minimise and restore together.");
         }
+    }
+
+    /// <summary>The layout tab's minimise button on a monitor: the zone flock there on the desktop the user is
+    /// looking at. False if there isn't one.</summary>
+    public bool MinimiseZoneFlock(string deviceName)
+    {
+        var flocks = _registry.ZoneFlocksOn(deviceName).ToList();
+        var group = flocks.FirstOrDefault(g => g.Members.Any(m => VirtualDesktops.IsOnCurrent((IntPtr)m.Handle) == true))
+                    ?? (_settings().ZoneFlockPerDesktop ? null : flocks.FirstOrDefault());
+        if (group is null) return false;
+        Minimise(group);
+        return true;
+    }
+
+    /// <summary>"Zones · DISPLAY1", plus " · Desktop 2" (or the desktop's name) when there are several desktops.</summary>
+    public static string ZoneFlockName(string deviceName, Guid? desktop)
+        => desktop is { } d && VirtualDesktops.Label(d) is { } label
+            ? $"Zones · {ShortName(deviceName)} · {label}"
+            : $"Zones · {ShortName(deviceName)}";
+
+    private static string ShortName(string deviceName) => deviceName.TrimStart('\\', '.');
+
+    /// <summary>The desktop a window's zone flock is keyed by — null with per-desktop zone flocks off.</summary>
+    private Guid? ZoneDesktopOf(IntPtr hwnd)
+        => _settings().ZoneFlockPerDesktop ? VirtualDesktops.DesktopOf(hwnd) : null;
+
+    /// <summary>Zone flocks from before they were per desktop: pin each to the desktop most of its windows are on.</summary>
+    private void AdoptZoneDesktops()
+    {
+        if (!_settings().ZoneFlockPerDesktop) return;
+        foreach (var group in _registry.Groups.Where(g => g is { ZoneMonitor: not null, ZoneDesktop: null }).ToList())
+        {
+            var desktops = group.Members.Select(m => VirtualDesktops.DesktopOf((IntPtr)m.Handle) ?? Guid.Empty).ToList();
+            if (FlockDesktop.Choose(desktops, focusedDesktop: null) is { } d)
+                _registry.SetZoneDesktop(group, d, ZoneFlockName(group.ZoneMonitor!, d));
+        }
+    }
+
+    /// <summary>Zoned windows whose cloaking changed (moved desktop, or the user switched desktop) — checked
+    /// once the burst has passed: any now on another desktop move to that desktop's zone flock.</summary>
+    private void CheckZoneDesktops()
+    {
+        _zoneDesktopCheck.Stop();
+        var pending = _cloakedZoneMembers.ToList();
+        _cloakedZoneMembers.Clear();
+        if (!_settings().ZonesFormFlock || !_settings().ZoneFlockPerDesktop) return;
+
+        AdoptZoneDesktops();
+        foreach (var h in pending)
+        {
+            if (_registry.FindByWindow(h) is not { ZoneMonitor: { } device, ZoneDesktop: { } was }) continue;
+            if (VirtualDesktops.DesktopOf((IntPtr)h) is { } now && now != was)
+                JoinZoneFlock((IntPtr)h, device, now);
+        }
+    }
+
+    private void OnCloakChanged(IntPtr hwnd)
+    {
+        if (!_settings().ZoneFlockPerDesktop || _registry.FindByWindow(hwnd) is not { ZoneMonitor: not null }) return;
+        _cloakedZoneMembers.Add(hwnd);
+        _zoneDesktopCheck.Stop();
+        _zoneDesktopCheck.Start();
     }
 
     /// <summary>A window was dragged out of its zones: drop it from its zone flock (hand-picked flocks

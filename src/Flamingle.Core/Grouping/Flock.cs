@@ -25,5 +25,9 @@ public sealed class Flock
     /// it belongs to. Null for flocks the user picked by hand.</summary>
     public string? ZoneMonitor { get; set; }
 
+    /// <summary>For a zone flock: the virtual desktop it belongs to, so each desktop's zoned windows form their
+    /// own flock. Null for hand-picked flocks, and for zone flocks made before (or without) per-desktop flocks.</summary>
+    public Guid? ZoneDesktop { get; set; }
+
     public bool Contains(long handle) => Members.Any(m => m.Handle == handle);
 }

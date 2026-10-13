@@ -33,6 +33,9 @@ internal sealed class TaskbarProxyWindow : Window
         Position = new PixelPoint(-20000, -20000);
     }
 
+    /// <summary>The native window handle (zero until it's been shown).</summary>
+    public IntPtr Handle => TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+
     /// <summary>The taskbar button was clicked (or the proxy was picked in Alt+Tab).</summary>
     public event Action? Clicked;
 
@@ -49,7 +52,7 @@ internal sealed class TaskbarProxyWindow : Window
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
-        AppUserModel.SetId(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero, _appId);
+        AppUserModel.SetId(Handle, _appId);
         WindowState = WindowState.Minimized;
         // Only treat state changes as clicks once we've settled into minimised.
         Dispatcher.UIThread.Post(() => _armed = true, DispatcherPriority.Background);

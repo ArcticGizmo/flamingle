@@ -46,10 +46,11 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
-    public void Zone_monitor_survives_a_round_trip()
+    public void Zone_monitor_and_desktop_survive_a_round_trip()
     {
+        var desktop = Guid.NewGuid();
         var reg = new FlockRegistry();
-        reg.Create("Zones", [new FlockMember(1, 10, "Code", "a")], zoneMonitor: @"\\.\DISPLAY1");
+        reg.Create("Zones", [new FlockMember(1, 10, "Code", "a")], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: desktop);
 
         var file = new JsonFile<FlockSnapshot>(Path.Combine(_dir, "flocks.json"));
         file.Save(FlockSnapshot.From(reg));
@@ -57,6 +58,7 @@ public sealed class PersistenceTests : IDisposable
         var loaded = new FlockRegistry();
         loaded.Load(file.Load(FlockSnapshot.Empty).ToGroups(_ => true));
         Assert.Equal(@"\\.\DISPLAY1", loaded.Groups.Single().ZoneMonitor);
+        Assert.Equal(desktop, loaded.Groups.Single().ZoneDesktop);
     }
 
     [Fact]

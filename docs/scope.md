@@ -59,6 +59,10 @@ FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on Po
 - Each monitor gets one of a set of built-in layout templates, chosen from the tray. No editor yet.
 - Windows dropped into zones on a monitor form that monitor's *zone flock*. This is a toggle; it
   replaces guessing Snap Groups.
+- Zone flocks are per monitor *per virtual desktop* (toggle, on by default), so zoned windows on
+  different desktops never minimise or restore together. A zoned window moved to another desktop moves
+  to that desktop's zone flock. Hand-picked flocks are not split by desktop.
+- A flock's taskbar button follows it to the desktop most of its windows are on (toggle).
 - Later: a layout editor, keyboard moves between zones, and the zone flock moving as a unit (Phase 2).
 
 ### Later / maybe

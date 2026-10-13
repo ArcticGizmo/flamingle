@@ -17,13 +17,19 @@ public sealed class FlockRegistry
     /// <summary>In creation order — the order gives each flock its slot (1-based) for the slot hotkeys.</summary>
     public IReadOnlyList<Flock> Groups => _groups;
 
-    public Flock Create(string name, IEnumerable<FlockMember> members, string? zoneMonitor = null)
+    public Flock Create(string name, IEnumerable<FlockMember> members, string? zoneMonitor = null,
+        Guid? zoneDesktop = null)
     {
         var list = members.DistinctBy(m => m.Handle).ToList();
         foreach (var m in list)
             RemoveWindowSilently(m.Handle);
 
-        var group = new Flock(Guid.NewGuid(), name, list) { LastUsed = _time.GetUtcNow(), ZoneMonitor = zoneMonitor };
+        var group = new Flock(Guid.NewGuid(), name, list)
+        {
+            LastUsed = _time.GetUtcNow(),
+            ZoneMonitor = zoneMonitor,
+            ZoneDesktop = zoneMonitor is null ? null : zoneDesktop,
+        };
         _groups.Add(group);
         Changed?.Invoke();
         return group;
@@ -39,15 +45,34 @@ public sealed class FlockRegistry
         Changed?.Invoke();
     }
 
-    /// <summary>The zone flock for a monitor, if there is one.</summary>
-    public Flock? ForZoneMonitor(string deviceName) => _groups.FirstOrDefault(g => g.ZoneMonitor == deviceName);
+    /// <summary>The zone flock for a monitor on one virtual desktop, if there is one. With a null
+    /// <paramref name="desktop"/> (per-desktop zone flocks off) any zone flock on the monitor will do.</summary>
+    public Flock? ForZone(string deviceName, Guid? desktop)
+        => _groups.FirstOrDefault(g => g.ZoneMonitor == deviceName && (desktop is null || g.ZoneDesktop == desktop));
 
-    /// <summary>A zone layout moved to another monitor: its zone flock follows (and is renamed).</summary>
-    public void RehomeZoneFlock(string from, string to, string newName)
+    /// <summary>Every zone flock on a monitor (one per virtual desktop).</summary>
+    public IEnumerable<Flock> ZoneFlocksOn(string deviceName) => _groups.Where(g => g.ZoneMonitor == deviceName);
+
+    /// <summary>Pin an existing zone flock to a virtual desktop (zone flocks saved before they were per desktop).</summary>
+    public void SetZoneDesktop(Flock group, Guid desktop, string newName)
     {
-        if (from == to || ForZoneMonitor(from) is not { } group) return;
-        group.ZoneMonitor = to;
+        if (group.ZoneMonitor is null || group.ZoneDesktop == desktop) return;
+        group.ZoneDesktop = desktop;
         group.Name = newName;
+        Changed?.Invoke();
+    }
+
+    /// <summary>A zone layout moved to another monitor: its zone flocks (one per desktop) follow, renamed.</summary>
+    public void RehomeZoneFlocks(string from, string to, Func<Flock, string> nameFor)
+    {
+        if (from == to) return;
+        var moving = ZoneFlocksOn(from).ToList();
+        if (moving.Count == 0) return;
+        foreach (var group in moving)
+        {
+            group.ZoneMonitor = to;
+            group.Name = nameFor(group);
+        }
         Changed?.Invoke();
     }
 

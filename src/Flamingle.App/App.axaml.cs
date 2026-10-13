@@ -71,20 +71,21 @@ public partial class App : Application
             _containers.Notice += ToastWindow.Show;
             _containers.Slotted += (hwnd, monitor) => _controller.JoinZoneFlock(hwnd, monitor);
             _containers.Unslotted += hwnd => _controller.LeaveZoneFlock(hwnd);
-            _containers.Rehomed += (from, to) => _registry.RehomeZoneFlock(from, to.DeviceName, $"Zones · {to.ShortName}");
+            _containers.Rehomed += (from, to) =>
+                _registry.RehomeZoneFlocks(from, to.DeviceName, g => FlockController.ZoneFlockName(to.DeviceName, g.ZoneDesktop));
             _containers.LayoutPicked += ApplyLayout;
             _containers.GapsToggled += SetGaps;
             _containers.MinimiseRequested += device =>
             {
-                if (_registry.ForZoneMonitor(device) is { } g) _controller.Minimise(g);
-                else ToastWindow.Show("This layout has no flock — turn on \"Zoned windows form a flock\" in the tray.");
+                if (!_controller.MinimiseZoneFlock(device))
+                    ToastWindow.Show("This layout has no flock — turn on \"Zoned windows form a flock\" in the tray.");
             };
             _containers.Start();
 
             _zones = new ZoneDragService(_hooks, () => _settings, _containers);
             _zones.Start();
 
-            _taskbar = new TaskbarService(_registry, _controller, () => _settings);
+            _taskbar = new TaskbarService(_registry, _controller, _hooks, () => _settings);
             _taskbar.Sync();
 
             // Out-of-context hooks deliver on this (UI) thread's message loop.
@@ -214,6 +215,15 @@ public partial class App : Application
         flock.Click += (_, _) => UpdateSettings(_settings with { ZonesFormFlock = !_settings.ZonesFormFlock });
         sub.Add(flock);
 
+        var perDesktop = new NativeMenuItem("A separate zone flock on each virtual desktop")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.ZoneFlockPerDesktop,
+            IsEnabled = _settings.ZonesFormFlock,
+        };
+        perDesktop.Click += (_, _) => UpdateSettings(_settings with { ZoneFlockPerDesktop = !_settings.ZoneFlockPerDesktop });
+        sub.Add(perDesktop);
+
         var gaps = new NativeMenuItem($"Gaps between windows ({_settings.ZoneSpacing} px)")
         {
             ToggleType = MenuItemToggleType.CheckBox,
@@ -298,6 +308,16 @@ public partial class App : Application
         };
         taskbar.Click += (_, _) => UpdateSettings(_settings with { TaskbarButtons = !_settings.TaskbarButtons });
         sub.Add(taskbar);
+
+        var follow = new NativeMenuItem("Flock's taskbar button follows it across virtual desktops")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.TaskbarButtonFollowsDesktop,
+            IsEnabled = _settings.TaskbarButtons,
+        };
+        follow.Click += (_, _) =>
+            UpdateSettings(_settings with { TaskbarButtonFollowsDesktop = !_settings.TaskbarButtonFollowsDesktop });
+        sub.Add(follow);
 
         return new NativeMenuItem("Experiments") { Menu = sub };
     }

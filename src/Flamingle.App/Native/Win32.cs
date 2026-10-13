@@ -213,6 +213,8 @@ internal static class Win32
     public const uint EVENT_SYSTEM_MINIMIZESTART = 0x0016;
     public const uint EVENT_SYSTEM_MINIMIZEEND = 0x0017;
     public const uint EVENT_OBJECT_DESTROY = 0x8001;
+    public const uint EVENT_OBJECT_CLOAKED = 0x8017;
+    public const uint EVENT_OBJECT_UNCLOAKED = 0x8018;
 
     public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
     public const uint WINEVENT_SKIPOWNPROCESS = 0x0002;

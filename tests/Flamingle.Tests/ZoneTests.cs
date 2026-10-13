@@ -219,8 +219,8 @@ public class ZoneFlockRegistryTests
 
         Assert.Equal([1L], hand.Members.Select(m => m.Handle));
         Assert.Equal([3L, 2L], zones.Members.Select(m => m.Handle));
-        Assert.Same(zones, reg.ForZoneMonitor(@"\\.\DISPLAY1"));
-        Assert.Null(reg.ForZoneMonitor(@"\\.\DISPLAY2"));
+        Assert.Same(zones, reg.ForZone(@"\\.\DISPLAY1", desktop: null));
+        Assert.Null(reg.ForZone(@"\\.\DISPLAY2", desktop: null));
     }
 
     [Fact]
@@ -229,11 +229,52 @@ public class ZoneFlockRegistryTests
         var reg = new FlockRegistry();
         var g = reg.Create("Zones · DISPLAY1", [M(1)], zoneMonitor: @"\\.\DISPLAY1");
 
-        reg.RehomeZoneFlock(@"\\.\DISPLAY1", @"\\.\DISPLAY2", "Zones · DISPLAY2");
+        reg.RehomeZoneFlocks(@"\\.\DISPLAY1", @"\\.\DISPLAY2", _ => "Zones · DISPLAY2");
 
-        Assert.Same(g, reg.ForZoneMonitor(@"\\.\DISPLAY2"));
-        Assert.Null(reg.ForZoneMonitor(@"\\.\DISPLAY1"));
+        Assert.Same(g, reg.ForZone(@"\\.\DISPLAY2", desktop: null));
+        Assert.Null(reg.ForZone(@"\\.\DISPLAY1", desktop: null));
         Assert.Equal("Zones · DISPLAY2", g.Name);
+    }
+
+    private static readonly Guid DesktopA = new("aaaaaaaa-0000-0000-0000-000000000000");
+    private static readonly Guid DesktopB = new("bbbbbbbb-0000-0000-0000-000000000000");
+
+    [Fact]
+    public void Each_desktop_has_its_own_zone_flock_on_a_monitor()
+    {
+        var reg = new FlockRegistry();
+        var a = reg.Create("A", [M(1)], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: DesktopA);
+        var b = reg.Create("B", [M(2)], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: DesktopB);
+
+        Assert.Same(a, reg.ForZone(@"\\.\DISPLAY1", DesktopA));
+        Assert.Same(b, reg.ForZone(@"\\.\DISPLAY1", DesktopB));
+        Assert.Null(reg.ForZone(@"\\.\DISPLAY1", Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void Rehoming_moves_every_desktops_zone_flock()
+    {
+        var reg = new FlockRegistry();
+        var a = reg.Create("A", [M(1)], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: DesktopA);
+        var b = reg.Create("B", [M(2)], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: DesktopB);
+
+        reg.RehomeZoneFlocks(@"\\.\DISPLAY1", @"\\.\DISPLAY2", g => $"Zones · {g.ZoneDesktop == DesktopA}");
+
+        Assert.Same(a, reg.ForZone(@"\\.\DISPLAY2", DesktopA));
+        Assert.Same(b, reg.ForZone(@"\\.\DISPLAY2", DesktopB));
+        Assert.Equal("Zones · True", a.Name);
+        Assert.Equal("Zones · False", b.Name);
+    }
+
+    [Fact]
+    public void Hand_picked_flocks_never_get_a_zone_desktop()
+    {
+        var reg = new FlockRegistry();
+        var g = reg.Create("Hand", [M(1)], zoneDesktop: DesktopA);
+        reg.SetZoneDesktop(g, DesktopB, "renamed");
+
+        Assert.Null(g.ZoneDesktop);
+        Assert.Equal("Hand", g.Name);
     }
 
     [Fact]

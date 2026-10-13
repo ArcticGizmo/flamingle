@@ -53,6 +53,10 @@ public sealed record AppSettings
     /// whole layout minimises / restores together.</summary>
     public bool ZonesFormFlock { get; init; } = true;
 
+    /// <summary>Experimental: zone flocks are per monitor <i>per virtual desktop</i>, so zoned windows on
+    /// different desktops never minimise / restore together. Off: one zone flock per monitor, across desktops.</summary>
+    public bool ZoneFlockPerDesktop { get; init; } = true;
+
     /// <summary>Experimental: a window pulled out of its zones shrinks back to its pre-snap size as soon as the
     /// drag starts (like FancyZones / Windows Snap), rather than when it's dropped.</summary>
     public bool RestoreSizeDuringDrag { get; init; } = true;
@@ -68,6 +72,10 @@ public sealed record AppSettings
     /// <summary>Experimental: give every flock its own taskbar button (icon made from its apps' icons);
     /// clicking it minimises / restores the flock.</summary>
     public bool TaskbarButtons { get; init; } = true;
+
+    /// <summary>Experimental: a flock's taskbar button moves to the virtual desktop most of its windows are on
+    /// (otherwise it stays on the desktop it was created on).</summary>
+    public bool TaskbarButtonFollowsDesktop { get; init; } = true;
 
     public string LayoutIdFor(string deviceName)
         => ZoneLayouts.TryGetValue(deviceName, out var id) ? id : Zones.ZoneLayout.DefaultId;
