@@ -1,1 +1,1 @@
-dotnet run --project src\Gaggle.App
+dotnet run --project src\Flamingle.App

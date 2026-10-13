@@ -1,4 +1,4 @@
-# Gaggle — project conventions
+# Flamingle — project conventions
 
 See `docs/scope.md` for what we're building and the decisions so far.
 
@@ -9,18 +9,18 @@ unsure about behind a toggle (tray menu or `settings.json`) so they can be compa
 
 ## Layout
 
-- `src/Gaggle.Core` — pure logic (grouping, snap-group heuristic, toggle rules, persistence). No Win32,
-  no Avalonia. Everything here gets an xunit test in `tests/Gaggle.Tests`.
-- `src/Gaggle.App` — Avalonia tray app + hand-rolled P/Invoke in `Native/`. Keep Win32 calls there.
+- `src/Flamingle.Core` — pure logic (grouping, snap-group heuristic, toggle rules, persistence). No Win32,
+  no Avalonia. Everything here gets an xunit test in `tests/Flamingle.Tests`.
+- `src/Flamingle.App` — Avalonia tray app + hand-rolled P/Invoke in `Native/`. Keep Win32 calls there.
 
 ## Win32 rules of thumb
 
 - Act on other processes' windows with `ShowWindowAsync` / `SWP_ASYNCWINDOWPOS` — a hung app must never
   block our UI thread.
-- Every change Gaggle makes to a member window must go through the `EchoSuppressor`, otherwise the
+- Every change Flamingle makes to a member window must go through the `EchoSuppressor`, otherwise the
   WinEvent hooks see our own change and loop.
 
 ## Dev build
 
-Always stop the running Gaggle before rebuilding, so the user never tests a stale binary
-(`Get-Process gaggle | Stop-Process -Force`, then build, then relaunch the exe).
+Always stop the running Flamingle before rebuilding, so the user never tests a stale binary
+(`Get-Process flamingle | Stop-Process -Force`, then build, then relaunch the exe).

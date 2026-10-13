@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Flamingle.Core/Flamingle.Core.csproj" />
+    <Project Path="src/Flamingle.App/Flamingle.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Flamingle.Tests/Flamingle.Tests.csproj" />
+  </Folder>
+</Solution>

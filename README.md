@@ -1,23 +1,35 @@
-# Gaggle
+<h1 align="center">Flamingle</h1>
 
-Group Windows app windows so they minimise, restore, move and relaunch together. See
-[docs/scope.md](docs/scope.md). **Experimental — Phase 1 spike (group & minimise).**
+<p align="center">
+ <img src="./landing-icon.png" width="150"  />
+</p>
+
+<p align="center">
+<strong>Windows that flock together</strong>
+</p>
+
+<br>
+
+Flamingle is a small Windows tray app that groups app windows into *flocks* so they minimise, restore,
+move and relaunch together. It also snaps windows into FancyZones-style layouts. See
+[docs/scope.md](docs/scope.md) for the plan. **Experimental: Phase 1 spike (group & minimise).**
 
 ## Run
 
 ```
-run.bat                      # dev instance (pink tray icon, data in %APPDATA%\Gaggle (Dev))
-dotnet test gaggle.slnx
-.\src\Gaggle.App\bin\Debug\net10.0-windows\gaggle.exe windows | Out-String   # list windows + snap-group guesses
+run.bat                      # dev instance (green tray icon, data in %APPDATA%\Flamingle (Dev))
+dotnet test flamingle.slnx
+.\src\Flamingle.App\bin\Debug\net10.0-windows\flamingle.exe windows | Out-String   # list windows + snap-group guesses
+.\tools\gen-icons.ps1        # after editing flamingle.svg: regenerate the .ico, tray frames and landing-icon.png
 ```
 
 ## Using it
 
 | Action | How |
 |---|---|
-| New gaggle | `Alt+Shift+G` (pre-checks the windows snapped with the focused one), or left-click the tray icon |
-| Minimise / restore the focused window's gaggle (else the last-used one) | `Alt+Shift+M` |
-| Minimise / restore gaggle *n* | `Alt+Shift+1` … `Alt+Shift+9` |
+| New flock | `Alt+Shift+G` (pre-checks the windows snapped with the focused one), or left-click the tray icon |
+| Minimise / restore the focused window's flock (else the last-used one) | `Alt+Shift+M` |
+| Minimise / restore flock *n* | `Alt+Shift+1` … `Alt+Shift+9` |
 | Members, dissolve, experiments | Right-click the tray icon |
 
 ### Zones (FancyZones-style)
@@ -56,28 +68,31 @@ The same presets, plus **Fill with open windows**, are in tray → Zones → *mo
 
 ### Taskbar buttons
 
-Each gaggle gets its own taskbar button, titled with its name, with an icon tiled from its apps' icons.
-Clicking it minimises or restores the gaggle. "Close window" on it dissolves the gaggle; the windows
+Each flock gets its own taskbar button, titled with its name, with an icon tiled from its apps' icons.
+Clicking it minimises or restores the flock. "Close window" on it dissolves the flock; the windows
 stay open. You can turn this off in tray → Experiments.
 
-With **Zoned windows form a gaggle** on (the default), every window you drop into zones on a monitor
-joins that monitor's zone gaggle. The whole zoned layout then minimises and restores together. Dragging
-a window back out of its zones takes it out of the zone gaggle, and it goes back to the size it had
-before it was snapped. Windows already in a gaggle you picked
+With **Zoned windows form a flock** on (the default), every window you drop into zones on a monitor
+joins that monitor's zone flock. The whole zoned layout then minimises and restores together. Dragging
+a window back out of its zones takes it out of the zone flock, and it goes back to the size it had
+before it was snapped. Windows already in a flock you picked
 by hand stay in it.
 
 ### Toggling
 
-A toggle press first **brings the gaggle forward** if any of it is minimised or hidden behind another
+A toggle press first **brings the flock forward** if any of it is minimised or hidden behind another
 app. The next press minimises it.
 
 **Experiments** (tray → Experiments):
 - **Linked minimise** (on by default). Minimising or restoring any one member, from its title bar or the
-  taskbar, takes the rest of the gaggle with it.
+  taskbar, takes the rest of the flock with it.
 - **Put windows back exactly after restore** (on by default). Corrects members whose app restored to a
   different position.
 
-Hotkeys are in `settings.json` (tray → Open data folder). Restart Gaggle after editing it.
+Hotkeys are in `settings.json` (tray → Open data folder). Restart Flamingle after editing it.
 
-Gaggles are made of live windows. They survive a Gaggle restart while the windows stay open. Saved
+Flamingle was called Gaggle until 2026-10-13. On first run it moves an existing `%APPDATA%\Gaggle` data
+folder (settings and live flocks) across to `%APPDATA%\Flamingle`.
+
+Flocks are made of live windows. They survive a Flamingle restart while the windows stay open. Saved
 layouts that relaunch apps come in Phase 3.

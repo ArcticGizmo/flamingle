@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Rasterises the project's single source-of-truth logo (flamingle.svg) into the icon assets the app
+    needs. Run with `dotnet run` here (or tools/gen-icons.ps1).
+
+    Kept out of flamingle.slnx on purpose: only the generated assets are committed, so nothing in the
+    shipping app depends on the SVG renderer (System.Drawing, Windows-only).
+
+    Adapted from emuwren's IconGen (../emuwren/tools/IconGen). Adds a set of exact-size tray frames (and a
+    green dev variant) so the tray icon is never resampled.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>false</UseWindowsForms>
+    <RootNamespace>Flamingle.IconGen</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Svg" Version="3.4.7" />
+  </ItemGroup>
+</Project>

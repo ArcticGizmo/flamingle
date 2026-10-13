@@ -1,9 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/Gaggle.Core/Gaggle.Core.csproj" />
-    <Project Path="src/Gaggle.App/Gaggle.App.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/Gaggle.Tests/Gaggle.Tests.csproj" />
-  </Folder>
-</Solution>
