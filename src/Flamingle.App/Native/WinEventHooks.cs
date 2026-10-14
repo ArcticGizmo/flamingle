@@ -24,12 +24,16 @@ internal sealed class WinEventHooks : IDisposable
     /// desktop, or the user switches desktop.</summary>
     public event Action<IntPtr>? CloakChanged;
 
+    /// <summary>A window was shown or hidden (e.g. an app hiding itself to the tray).</summary>
+    public event Action<IntPtr>? VisibilityChanged;
+
     public void Start()
     {
         Hook(Win32.EVENT_SYSTEM_FOREGROUND, Win32.EVENT_SYSTEM_FOREGROUND);
         Hook(Win32.EVENT_SYSTEM_MOVESIZESTART, Win32.EVENT_SYSTEM_MOVESIZEEND);
         Hook(Win32.EVENT_SYSTEM_MINIMIZESTART, Win32.EVENT_SYSTEM_MINIMIZEEND);
-        Hook(Win32.EVENT_OBJECT_DESTROY, Win32.EVENT_OBJECT_DESTROY);
+        // DESTROY, SHOW and HIDE are adjacent (0x8001–0x8003): one hook covers them.
+        Hook(Win32.EVENT_OBJECT_DESTROY, Win32.EVENT_OBJECT_HIDE);
         Hook(Win32.EVENT_OBJECT_CLOAKED, Win32.EVENT_OBJECT_UNCLOAKED);
     }
 
@@ -55,6 +59,8 @@ internal sealed class WinEventHooks : IDisposable
             case Win32.EVENT_SYSTEM_MOVESIZEEND: MoveSizeEnded?.Invoke(hwnd); break;
             case Win32.EVENT_OBJECT_CLOAKED:
             case Win32.EVENT_OBJECT_UNCLOAKED: CloakChanged?.Invoke(hwnd); break;
+            case Win32.EVENT_OBJECT_SHOW:
+            case Win32.EVENT_OBJECT_HIDE: VisibilityChanged?.Invoke(hwnd); break;
         }
     }
 

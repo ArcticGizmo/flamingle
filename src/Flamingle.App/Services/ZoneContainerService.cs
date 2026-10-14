@@ -13,17 +13,13 @@ namespace Flamingle.App.Services;
 
 /// <summary>
 /// Owns the zone containers — one per monitor, each a layout laid out in a movable frame, plus the windows
-/// snapped into its zones — and their handles: a pull-tab on the top edge (drag to move, click for presets
-/// and actions) and a strip over each divider between zones (drag to re-split). Moving the frame or a
-/// divider re-places every slotted window in one <c>DeferWindowPos</c> batch, so they move as a unit.
-///
-/// <para>The handles show whenever the layout has windows on screen. They aren't topmost: they're lifted just
-/// above the layout when one of its windows comes to the front, so another app in front covers them too.</para>
+/// snapped into its zones. Layouts show nothing on screen until edit mode (the edit-layout hotkey): then the
+/// layout gets an outline you drag to move it, a panel of presets and actions, and a strip over each divider
+/// between zones (drag to re-split). Moving the frame or a divider re-places every slotted window in one
+/// <c>DeferWindowPos</c> batch, so they move as a unit.
 /// </summary>
 internal sealed class ZoneContainerService : IDisposable
 {
-    private const uint RaiseFlags = Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE | Win32.SWP_NOOWNERZORDER;
-
     private readonly Func<AppSettings> _settings;
     private readonly WinEventHooks _hooks;
     private readonly JsonFile<List<ZoneContainerState>> _file;
@@ -61,21 +57,14 @@ internal sealed class ZoneContainerService : IDisposable
     // Divider strips are at least this thick (DIP), even when the zones have no spacing between them.
     private const double MinDividerThickness = 8;
 
-    // Hover-to-reveal: the cursor lingering this close to a tab (DIP) for this long lifts the tab above
-    // everything; it drops back once the cursor has been away for the grace period.
-    private const double HoverReach = 36;
-    private static readonly TimeSpan HoverDwell = TimeSpan.FromMilliseconds(350);
-    private static readonly TimeSpan HoverGrace = TimeSpan.FromMilliseconds(700);
+    // The panel sits this far (DIP) below the top of the layout it edits.
+    private const double PanelOffset = 16;
 
-    private sealed class Handles(ContainerHandleWindow chip)
+    private sealed class Handles(LayoutPanelWindow panel)
     {
-        public ContainerHandleWindow Chip { get; } = chip;
+        public LayoutPanelWindow Panel { get; } = panel;
         public List<DividerHandleWindow> Dividers { get; } = [];
-        public IEnumerable<Window> All => [Chip, .. Dividers];
-
-        public double Scale { get; set; } = 1.0;
-        public DateTime? NearSince { get; set; }
-        public DateTime? AwaySince { get; set; }
+        public IEnumerable<Window> All => [Panel, .. Dividers];
     }
 
     private enum DragKind { Move, Divider }
@@ -98,18 +87,19 @@ internal sealed class ZoneContainerService : IDisposable
         _hooks = hooks;
         _file = new JsonFile<List<ZoneContainerState>>(path);
 
-        _sync = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        _sync.Tick += (_, _) => SyncHandles();
+        // One-shot: a burst of window events (a desktop switch cloaks a dozen windows) becomes one sync, run once
+        // the windows have settled (a minimise has to land before the window reads as minimised).
+        _sync = new DispatcherTimer { Interval = SyncDelay };
+        _sync.Tick += (_, _) =>
+        {
+            _sync.Stop();
+            SyncHandles();
+        };
 
         // Window moves during a handle drag are coalesced to one batch per frame.
         _apply = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(16) };
         _apply.Tick += (_, _) => ApplyPendingDrag();
-
-        _hover = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
-        _hover.Tick += (_, _) => HoverTick();
     }
-
-    private readonly DispatcherTimer _hover;
 
     /// <summary>A window was put into a layout's zones (by drag, or "fill with open windows").</summary>
     public event Action<IntPtr, MonitorInfo>? Slotted;
@@ -120,15 +110,18 @@ internal sealed class ZoneContainerService : IDisposable
     /// <summary>A container moved to another monitor (from device, to monitor) — its zone flock follows.</summary>
     public event Action<string, MonitorInfo>? Rehomed;
 
+    /// <summary>Two layouts swapped monitors — their zone flocks swap too.</summary>
+    public event Action<MonitorInfo, MonitorInfo>? Swapped;
+
     /// <summary>The chip's "Minimise layout" (device name of the layout's monitor).</summary>
     public event Action<string>? MinimiseRequested;
 
-    /// <summary>A layout preset was picked from a chip (monitor, layout id).</summary>
+    /// <summary>A layout preset was picked from a panel or the snap strip (monitor, layout id).</summary>
     public event Action<MonitorInfo, string>? LayoutPicked;
 
     public event Action<string>? Notice;
 
-    /// <summary>The gaps toggle in a layout tab was flipped (the setting is global — the app owns it).</summary>
+    /// <summary>The gaps toggle in a layout's panel was flipped (the setting is global — the app owns it).</summary>
     public event Action<bool>? GapsToggled;
 
     /// <summary>Re-fit every layout's windows — after a setting that changes the zones (e.g. gaps).</summary>
@@ -157,11 +150,46 @@ internal sealed class ZoneContainerService : IDisposable
         Save();
 
         _hooks.ForegroundChanged += OnForegroundChanged;
+
+        // A layout in edit mode needs windows on screen: re-check when one of its windows is minimised, restored,
+        // hidden, shown, closed or moved to / from another virtual desktop — or a monitor comes or goes.
+        // (Flamingle's own changes sync directly.)
+        _hooks.MinimiseStarted += SyncIfSlotted;
+        _hooks.MinimiseEnded += SyncIfSlotted;
+        _hooks.Destroyed += SyncIfSlotted;
+        _hooks.VisibilityChanged += SyncIfSlotted;
+        _hooks.CloakChanged += SyncIfSlotted;
+
         _broadcasts = new MessageWindow("FlamingleWorkAreaWindow", receivesBroadcasts: true);
         _broadcasts.SettingChanged += OnSettingChanged;
-        _broadcasts.DisplayChanged += () => Dispatcher.UIThread.Post(FollowWorkAreas);
+        _broadcasts.DisplayChanged += () =>
+        {
+            Dispatcher.UIThread.Post(FollowWorkAreas);
+            ScheduleSync();
+        };
+        _broadcasts.HotkeyPressed += id =>
+        {
+            switch (id)
+            {
+                case EscHotkeyId: ExitEdit(); break;
+                case UndoHotkeyId: Undo(); break;
+                case RedoHotkeyId or RedoAltHotkeyId: Redo(); break;
+            }
+        };
+        SyncHandles();
+    }
+
+    private static readonly TimeSpan SyncDelay = TimeSpan.FromMilliseconds(60);
+
+    private void SyncIfSlotted(IntPtr hwnd)
+    {
+        if (SlotOf(hwnd) is not null) ScheduleSync();
+    }
+
+    private void ScheduleSync()
+    {
+        _sync.Stop();
         _sync.Start();
-        _hover.Start();
     }
 
     // ---- Queries used by the drag-to-snap overlay ----
@@ -179,6 +207,19 @@ internal sealed class ZoneContainerService : IDisposable
         return ContainerOn(monitor.DeviceName)?.Zones(spacing)
             ?? ZoneMath.Resolve(ZoneLayout.ById(LayoutIdFor(monitor)), monitor.WorkArea, spacing);
     }
+
+    /// <summary>The zones <paramref name="layoutId"/> would have on a monitor — in its layout's frame if it has one
+    /// (with its custom splits, if that's the current layout), else filling the work area. For the snap strip.</summary>
+    public IReadOnlyList<PixelRect> ZonesFor(MonitorInfo monitor, string layoutId)
+    {
+        if (layoutId == LayoutIdFor(monitor)) return ZonesFor(monitor);
+        var frame = ContainerOn(monitor.DeviceName)?.Frame ?? monitor.WorkArea;
+        return ZoneMath.Resolve(ZoneLayout.ById(layoutId), frame, _settings().EffectiveZoneSpacing);
+    }
+
+    /// <summary>Switch a monitor's layout the way a layout tab does (the app saves the choice and re-flows) — for a
+    /// window dropped on another layout in the snap strip.</summary>
+    public void PickLayout(MonitorInfo monitor, string layoutId) => LayoutPicked?.Invoke(monitor, layoutId);
 
     // ---- Membership ----
 
@@ -227,8 +268,10 @@ internal sealed class ZoneContainerService : IDisposable
     public void SetLayout(MonitorInfo monitor, string layoutId)
     {
         if (ContainerOn(monitor.DeviceName) is not { } c) return;
+        BeginChange("change layout");
         c.LayoutId = layoutId;
         Reflow(c);
+        EndChange();
         Save();
         SyncHandles();
     }
@@ -288,7 +331,10 @@ internal sealed class ZoneContainerService : IDisposable
             var onScreen = c.Slots.Keys.Any(h => WindowQuery.IsCandidate((IntPtr)h) && !Win32.IsIconic((IntPtr)h));
             var monitor = monitors.FirstOrDefault(m => m.DeviceName == c.DeviceName);
 
-            if (dragging || (onScreen && monitor is not null))
+            // An edited layout whose windows have all gone (minimised, closed) leaves edit mode.
+            if (_editing == c && !dragging && (!onScreen || monitor is null)) ExitEdit();
+
+            if (_editing == c || dragging)
                 ShowHandles(c, monitor);
             else
                 HideHandles(c);
@@ -344,23 +390,50 @@ internal sealed class ZoneContainerService : IDisposable
         var isNew = !_handles.TryGetValue(c, out var h);
         if (h is null)
         {
-            h = new Handles(new ContainerHandleWindow());
-            WireChip(c, h.Chip);
+            h = new Handles(new LayoutPanelWindow());
+            WirePanel(c, h.Panel);
             _handles[c] = h;
         }
 
-        h.Chip.SetLabel($"{c.Layout.Name} · {c.Slots.Count}");
-        h.Chip.SetCurrentLayout(c.LayoutId);
-        h.Chip.SetGaps(_settings().ZoneGaps);
-        h.Chip.SetAdjusting(_adjusting.Contains(c));
+        h.Panel.SetLabel($"{c.Layout.Name} · {c.Slots.Count} window{(c.Slots.Count == 1 ? "" : "s")}");
+        h.Panel.SetCurrentLayout(c.LayoutId);
+        h.Panel.SetGaps(_settings().ZoneGaps);
+        h.Panel.SetAdjusting(_adjusting.Contains(c));
+        h.Panel.SetHistory(_history.CanUndo, _history.CanRedo);
         SyncDividers(c, h);
         PositionHandles(c, h, monitor);
 
-        if (isNew)
+        if (isNew) h.Panel.Show();
+        Restack(h);
+    }
+
+    /// <summary>Edit mode's windows are all topmost; stack them frame, then split strips, then panel — so the strips
+    /// and the panel can always be grabbed.</summary>
+    private void Restack(Handles h)
+    {
+        const uint flags = Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE | Win32.SWP_NOOWNERZORDER;
+        IEnumerable<Window> order = [.. _editFrame is null ? [] : new Window[] { _editFrame }, .. h.Dividers, h.Panel];
+        foreach (var w in order)
         {
-            h.Chip.Show();
-            // Born on top of everything; tuck it in just above the layout instead.
-            PlaceHandlesInZOrder(c, h);
+            if (w.TryGetPlatformHandle()?.Handle is { } hwnd && hwnd != IntPtr.Zero)
+                Win32.SetWindowPos(hwnd, Win32.HWND_TOPMOST, 0, 0, 0, 0, flags);
+        }
+    }
+
+    /// <summary>Bring a layout's windows to the front (keeping their order among themselves) — after it lands on
+    /// another monitor, where they'd otherwise keep their old place behind whatever was there.</summary>
+    private static void BringToFront(ZoneContainer c)
+    {
+        const uint flags = Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE | Win32.SWP_NOOWNERZORDER
+                           | Win32.SWP_ASYNCWINDOWPOS;
+        var order = Core.Grouping.ZOrder.Sort(c.Slots.Keys, WindowQuery.ZOrderTopFirst());
+        var above = IntPtr.Zero;   // HWND_TOP for the first, then each one directly beneath the one before
+        foreach (var h in order)
+        {
+            var hwnd = (IntPtr)h;
+            if (Win32.IsIconic(hwnd) || Win32.IsHungAppWindow(hwnd)) continue;
+            Win32.SetWindowPos(hwnd, above, 0, 0, 0, 0, flags);
+            above = hwnd;
         }
     }
 
@@ -402,195 +475,235 @@ internal sealed class ZoneContainerService : IDisposable
         h.Dividers.Clear();
     }
 
-    /// <summary>Show / hide a layout's divider strips (the tab's "Adjust splits").</summary>
-    private void SetAdjusting(ZoneContainer c, bool on)
+    /// <summary>Show / hide a layout's divider strips (the panel's "Adjust splits").</summary>
+    private void SetAdjusting(ZoneContainer c, bool on, bool quiet = false)
     {
         if (on ? !_adjusting.Add(c) : !_adjusting.Remove(c)) return;
-        if (_handles.TryGetValue(c, out var h)) h.Chip.SetAdjusting(on);
+        if (_handles.TryGetValue(c, out var h)) h.Panel.SetAdjusting(on);
         SyncHandles();
-        if (on && c.Dividers().Count == 0)
+        if (on && !quiet && c.Dividers().Count == 0)
             Notice?.Invoke($"{c.Layout.Name} has only one zone — nothing to split.");
     }
 
+    // ---- Edit mode ----
+
+    // The layout being edited (at most one), and the frame drawn over it.
+    private ZoneContainer? _editing;
+    private EditFrameWindow? _editFrame;
+    private const int EscHotkeyId = 1;
+    private const uint VK_ESCAPE = 0x1B;
+    private const uint MOD_NOREPEAT = 0x4000;
+
     /// <summary>
-    /// The layout-menu hotkey: if any layout's panel is open, close it; otherwise open the panel of the layout on
-    /// the monitor under the cursor, as if its tab was clicked.
+    /// The edit-layout hotkey: leave edit mode if a layout is in it; otherwise put the layout on the monitor under the
+    /// cursor into edit mode — an outline you can drag from anywhere to move the layout (onto another monitor too),
+    /// its split strips, and its panel.
     /// </summary>
-    public void ToggleMenuAtCursor()
+    public void ToggleEditAtCursor()
     {
-        var open = _handles.Values.Where(h => h.Chip.IsExpanded).ToList();
-        if (open.Count > 0)
+        if (_editing is not null)
         {
-            foreach (var h in open) h.Chip.Collapse();
+            ExitEdit();
             return;
         }
 
         if (!Win32.GetCursorPos(out var cursor) || MonitorAt((cursor.x, cursor.y)) is not { } monitor) return;
-        SyncHandles();
+        Prune();
         if (ContainerOn(monitor.DeviceName) is not { } c)
-            Notice?.Invoke($"No zone layout on {monitor.ShortName} — Shift-drag a window into a zone to start one.");
-        else if (!_handles.TryGetValue(c, out var handles))
+            Notice?.Invoke($"No zone layout on {monitor.ShortName} — drag a window to the top of the screen, or Shift-drag it, to start one.");
+        else if (!c.Slots.Keys.Any(h => WindowQuery.IsCandidate((IntPtr)h) && !Win32.IsIconic((IntPtr)h)))
             Notice?.Invoke($"The layout on {monitor.ShortName} has no windows on screen.");
         else
-            handles.Chip.Expand();
+            EnterEdit(c, monitor);
     }
 
-    /// <summary>
-    /// The tab normally sits just above its layout, so the layout's own windows (or anything brought in
-    /// front) can bury it. If the cursor lingers near a tab, lift it above everything; once the cursor has
-    /// been away for a moment (and the panel's closed), let it drop back.
-    /// </summary>
-    private void HoverTick()
+    private void EnterEdit(ZoneContainer c, MonitorInfo monitor)
     {
-        if (_handles.Count == 0 || !Win32.GetCursorPos(out var cursor)) return;
-        var now = DateTime.UtcNow;
+        _editing = c;
 
-        foreach (var (c, h) in _handles.ToList())
+        var hotkey = Core.Hotkeys.Hotkey.TryParse(_settings().LayoutMenuHotkey)?.ToString();
+        var frame = _editFrame = new EditFrameWindow(
+            $"Drag to move the layout · double-click to fill the screen · Esc{(hotkey is null ? "" : $" or {hotkey}")} to finish");
+        frame.DragStarted += () => BeginDrag(c, DragKind.Move, -1);
+        frame.Dragged += (dx, dy) => DragTo(c, dx, dy);
+        frame.DragEnded += () => EndDrag(c);
+        frame.DoubleClicked += () => FillMonitor(c);
+        frame.Place(c.Frame, monitor.Scale);
+        frame.Show();   // first, so the split strips and the panel (also topmost) land above it
+
+        _broadcasts?.RegisterHotkey(EscHotkeyId, MOD_NOREPEAT, VK_ESCAPE);
+        _broadcasts?.RegisterHotkey(UndoHotkeyId, MOD_CONTROL | MOD_NOREPEAT, 'Z');
+        _broadcasts?.RegisterHotkey(RedoHotkeyId, MOD_CONTROL | MOD_NOREPEAT, 'Y');
+        _broadcasts?.RegisterHotkey(RedoAltHotkeyId, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, 'Z');
+        _adjusting.Add(c);
+        SyncHandles();   // shows the panel and split strips
+    }
+
+    private void ExitEdit()
+    {
+        if (_editing is not { } c) return;
+        _editing = null;
+        foreach (var id in new[] { EscHotkeyId, UndoHotkeyId, RedoHotkeyId, RedoAltHotkeyId })
+            _broadcasts?.UnregisterHotkey(id);
+        _editFrame?.Close();
+        _editFrame = null;
+        _adjusting.Remove(c);
+        SyncHandles();
+    }
+
+    // ---- Undo / redo ----
+
+    // Session-only history of layout position adjustments (moves, splits, layout switches) — every layout's
+    // geometry before each change. Reached in edit mode: Ctrl+Z / Ctrl+Y, or the panel's buttons.
+    private readonly LayoutHistory<ZoneContainer> _history = new();
+    private Dictionary<ZoneContainer, LayoutGeometry>? _changeStart;
+    private string _changeLabel = "";
+
+    private const int UndoHotkeyId = 2;
+    private const int RedoHotkeyId = 3;
+    private const int RedoAltHotkeyId = 4;
+    private const uint MOD_CONTROL = 0x0002;
+    private const uint MOD_SHIFT = 0x0004;
+
+    private Dictionary<ZoneContainer, LayoutGeometry> Geometry() => _containers.ToDictionary(c => c, LayoutGeometry.Of);
+
+    /// <summary>Remember every layout's geometry before a change (a drag records once, at its end).</summary>
+    private void BeginChange(string label)
+    {
+        _changeStart = Geometry();
+        _changeLabel = label;
+    }
+
+    private void EndChange()
+    {
+        if (_changeStart is not { } before) return;
+        _changeStart = null;
+        _history.Record(_changeLabel, before, Geometry());
+    }
+
+    public void Undo() => ApplyHistoryStep(_history.Undo(CurrentGeometry), "Undid", "Nothing to undo.");
+
+    public void Redo() => ApplyHistoryStep(_history.Redo(CurrentGeometry), "Redid", "Nothing to redo.");
+
+    private LayoutGeometry? CurrentGeometry(ZoneContainer c) => _containers.Contains(c) ? LayoutGeometry.Of(c) : null;
+
+    /// <summary>Put the layouts in a history step back where it says, re-flowing their windows; zone flocks follow
+    /// any layout that changes monitor (a swap undone swaps back).</summary>
+    private void ApplyHistoryStep(LayoutChange<ZoneContainer>? step, string verb, string nothing)
+    {
+        if (step is null)
         {
-            h.Chip.KeepOnTop();
-            var size = h.Chip.PixelSizeAt(h.Scale);
-            var reach = (int)(HoverReach * h.Scale);
-            var pos = h.Chip.Position;
-            var near = cursor.x >= pos.X - reach && cursor.x < pos.X + size.Width + reach
-                    && cursor.y >= pos.Y - reach && cursor.y < pos.Y + size.Height + reach;
-
-            if (near)
-            {
-                h.AwaySince = null;
-                h.NearSince ??= now;
-                if (!h.Chip.IsPeeking && now - h.NearSince >= HoverDwell)
-                    h.Chip.SetPeek(true);
-            }
-            else
-            {
-                h.NearSince = null;
-                if (!h.Chip.IsPeeking || h.Chip.IsExpanded || _drag?.Container == c) continue;
-                h.AwaySince ??= now;
-                if (now - h.AwaySince < HoverGrace) continue;
-
-                h.AwaySince = null;
-                h.Chip.SetPeek(false);
-                PlaceHandlesInZOrder(c, h);
-            }
+            Notice?.Invoke(nothing);
+            return;
         }
+
+        var monitors = Monitors.All();
+        var moves = new List<(ZoneContainer C, string From)>();
+        foreach (var (c, geometry) in step.Before)
+        {
+            if (!_containers.Contains(c)) continue;   // released since
+            var from = c.DeviceName;
+            geometry.ApplyTo(c);
+            if (monitors.FirstOrDefault(m => m.DeviceName == c.DeviceName) is { } m)
+                c.Frame = ZoneContainer.ClampInto(c.Frame, m.WorkArea);
+            if (from != c.DeviceName) moves.Add((c, from));
+        }
+
+        MonitorInfo? On(string device) => monitors.FirstOrDefault(m => m.DeviceName == device);
+        if (moves.Count == 2 && moves[0].From == moves[1].C.DeviceName && moves[1].From == moves[0].C.DeviceName
+            && On(moves[0].From) is { } a && On(moves[1].From) is { } b)
+        {
+            Swapped?.Invoke(a, b);
+        }
+        else
+        {
+            foreach (var (c, from) in moves)
+                if (On(c.DeviceName) is { } to) Rehomed?.Invoke(from, to);
+        }
+
+        foreach (var c in step.Before.Keys.Where(_containers.Contains))
+        {
+            Reflow(c);
+            if (moves.Any(m => m.C == c)) BringToFront(c);
+        }
+        Save();
+        SyncHandles();
+        Notice?.Invoke($"{verb}: {step.Label}.");
     }
 
     private void PositionHandles(ZoneContainer c, Handles h, MonitorInfo? monitor)
     {
         var scale = monitor?.Scale ?? 1.0;
-        h.Scale = scale;
         var f = c.Frame;
 
-        // The tab hangs from the frame's top edge, centred; the expanded panel opens downward beneath it.
-        var dividers = c.Dividers();
-        var zones = c.Zones(_settings().EffectiveZoneSpacing);
-        // Place the (collapsed) tab first, then centre the window on it — so opening the panel doesn't make the
-        // tab jump.
-        var tabWidth = (int)Math.Ceiling(ContainerHandleWindow.TabWidth * scale);
-        var tabX = AvoidCaptionButtons(f.X + (f.Width - tabWidth) / 2, tabWidth, dividers, zones, scale);
-        var chip = h.Chip.PixelSizeAt(scale);
-        h.Chip.Position = new PixelPoint(tabX + tabWidth / 2 - chip.Width / 2, f.Y);
+        // The panel sits centred near the top of the layout.
+        var panel = h.Panel.PixelSizeAt(scale);
+        h.Panel.Position = new PixelPoint(f.X + (f.Width - panel.Width) / 2, f.Y + (int)(PanelOffset * scale));
+
+        if (_editing == c) _editFrame?.Place(f, scale);
 
         // Each divider strip covers the gap between its zones.
+        var dividers = c.Dividers();
         if (dividers.Count != h.Dividers.Count) return;
+        var zones = c.Zones(_settings().EffectiveZoneSpacing);
         var thickness = (int)Math.Ceiling(MinDividerThickness * scale);
         for (var i = 0; i < dividers.Count; i++)
             h.Dividers[i].Place(ZoneDividers.HandleRect(dividers[i], zones, thickness), scale);
     }
 
-    // Roughly the width of a window's minimise / maximise / close buttons (DIP), and the nudge past a split.
-    private const double CaptionButtonsWidth = 140;
-    private const double TabNudge = 12;
-
-    /// <summary>
-    /// A vertical split that reaches the top puts the left window's close button right next to the centre.
-    /// If the tab would sit over a window's caption buttons (just left of such a split), move it to just right
-    /// of the split instead — over the start of the next window's title bar.
-    /// </summary>
-    private static int AvoidCaptionButtons(int x, int width, IReadOnlyList<ZoneDivider> dividers, IReadOnlyList<PixelRect> zones, double scale)
-    {
-        var buttons = (int)(CaptionButtonsWidth * scale);
-        foreach (var d in dividers.Where(d => d.Vertical && d.Start < 1e-6).OrderBy(d => d.Position))
-        {
-            var gap = ZoneDividers.HandleRect(d, zones, minThickness: 0);
-            if (x < gap.Right && x + width > gap.X - buttons)
-                return gap.Right + (int)(TabNudge * scale);
-        }
-        return x;
-    }
-
-    /// <summary>Lift the tab above the layout: to the top if a layout window is in front, else just beneath
-    /// whatever app is. (Divider strips are topmost while shown, so they're left alone.)</summary>
-    private void PlaceHandlesInZOrder(ZoneContainer c, Handles h)
-    {
-        if (h.Chip.IsExpanded || h.Chip.IsPeeking) return;   // topmost while open / hovered
-        var fg = Win32.GetForegroundWindow();
-        var insertAfter = c.Slots.ContainsKey(fg) || fg == IntPtr.Zero ? IntPtr.Zero /* HWND_TOP */ : fg;
-        var hwnd = h.Chip.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-        if (hwnd != IntPtr.Zero && hwnd != insertAfter)
-            Win32.SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, RaiseFlags);
-    }
-
-    private void OnForegroundChanged(IntPtr hwnd)
-    {
-        foreach (var (c, h) in _handles.ToList())
-        {
-            h.Chip.Collapse();
-            if (c.Slots.ContainsKey(hwnd)) PlaceHandlesInZOrder(c, h);
-            // Switching to some other app ends split-adjusting (the strips are topmost — don't leave them).
-            else if (_adjusting.Contains(c)) SetAdjusting(c, false);
-        }
-    }
+    /// <summary>Edit mode can't be clicked through (the frame covers the layout), so any switch of app is the user
+    /// moving on.</summary>
+    private void OnForegroundChanged(IntPtr hwnd) => ExitEdit();
 
     private void HideHandles(ZoneContainer c)
     {
+        if (_editing == c) ExitEdit();
         _adjusting.Remove(c);
         if (!_handles.Remove(c, out var h)) return;
         foreach (var w in h.All) w.Close();
     }
 
-    private void WireChip(ZoneContainer c, ContainerHandleWindow handle)
+    private void WirePanel(ZoneContainer c, LayoutPanelWindow panel)
     {
-        handle.DragStarted += () => BeginDrag(c, DragKind.Move, -1);
-        handle.Dragged += (dx, dy) => DragTo(c, dx, dy);
-        handle.DragEnded += () => EndDrag(c);
-        handle.DoubleClicked += () => FillMonitor(c);
-        handle.ExpandedChanged += () =>
-        {
-            if (!_handles.TryGetValue(c, out var h)) return;
-            PositionHandles(c, h, MonitorOf(c));
-            // Collapsed again: drop from topmost back to just above the layout.
-            if (!h.Chip.IsExpanded) PlaceHandlesInZOrder(c, h);
-        };
-        handle.LayoutChosen += id =>
+        panel.LayoutChosen += id =>
         {
             if (MonitorOf(c) is { } m) LayoutPicked?.Invoke(m, id);
         };
-        handle.ActionChosen += action => OnChipAction(c, action);
-        handle.GapsToggled += on => GapsToggled?.Invoke(on);
+        panel.ActionChosen += action => OnPanelAction(c, action);
+        panel.GapsToggled += on => GapsToggled?.Invoke(on);
     }
 
-    private void OnChipAction(ZoneContainer c, ChipAction action)
+    private void OnPanelAction(ZoneContainer c, PanelAction action)
     {
+        // Split tweaks keep edit mode going; the other actions are done with it.
+        if (action is not (PanelAction.AdjustSplits or PanelAction.EvenOutSplits or PanelAction.Undo or PanelAction.Redo))
+            ExitEdit();
+
         switch (action)
         {
-            case ChipAction.FillWithOpenWindows:
+            case PanelAction.FillWithOpenWindows:
                 if (MonitorOf(c) is { } m) FillWithOpenWindows(m);
                 break;
-            case ChipAction.FillScreen:
+            case PanelAction.FillScreen:
                 FillMonitor(c);
                 break;
-            case ChipAction.MinimiseLayout:
+            case PanelAction.MinimiseLayout:
                 MinimiseRequested?.Invoke(c.DeviceName);
                 break;
-            case ChipAction.ReleaseWindows:
+            case PanelAction.ReleaseWindows:
                 Release(c);
                 break;
-            case ChipAction.EvenOutSplits:
+            case PanelAction.EvenOutSplits:
                 EvenOut(c);
                 break;
-            case ChipAction.AdjustSplits:
+            case PanelAction.AdjustSplits:
                 SetAdjusting(c, !_adjusting.Contains(c));
+                break;
+            case PanelAction.Undo:
+                Undo();
+                break;
+            case PanelAction.Redo:
+                Redo();
                 break;
         }
     }
@@ -614,6 +727,7 @@ internal sealed class ZoneContainerService : IDisposable
                 .Where(h => h != (long)hwnd)
                 .ToDictionary(h => h, h => WindowPlacer.MarginsOf((IntPtr)h));
             _resize = new LinkedResize(owner, owner.Slots[hwnd], margins);
+            BeginChange("resize split");
         }
 
         var r = _resize;
@@ -660,6 +774,7 @@ internal sealed class ZoneContainerService : IDisposable
         _resize = null;
         FollowWorkAreas();   // in case the work area changed mid-resize
         Reflow(r.Container);
+        EndChange();
         Save();
         SyncHandles();
     }
@@ -668,8 +783,10 @@ internal sealed class ZoneContainerService : IDisposable
     private void EvenOut(ZoneContainer c)
     {
         if (c.CustomZones is null) return;
+        BeginChange("even out splits");
         c.CustomZones = null;
         Reflow(c);
+        EndChange();
         Save();
         SyncHandles();
     }
@@ -707,6 +824,10 @@ internal sealed class ZoneContainerService : IDisposable
         // would cost a cross-process query per window per tick.
         var margins = c.Slots.Keys.ToDictionary(h => h, h => WindowPlacer.MarginsOf((IntPtr)h));
         _drag = new DragState(c, kind, divider, margins);
+        BeginChange(kind == DragKind.Move ? "move layout" : "adjust split");
+
+        // Picking a layout up brings its windows forward, so they don't pass behind other windows on the way.
+        if (kind == DragKind.Move) BringToFront(c);
         _apply.Start();
     }
 
@@ -760,41 +881,58 @@ internal sealed class ZoneContainerService : IDisposable
         // Fit with fresh margins: a window that changed monitor may also have changed DPI (and border size).
         Reflow(c);
         DispatcherTimer.RunOnce(() => Reflow(c), TimeSpan.FromMilliseconds(150));
+        EndChange();
         Save();
         SyncHandles();
     }
 
-    /// <summary>After a move: settle the frame onto whichever monitor its centre landed on.</summary>
+    /// <summary>
+    /// After a move: settle the frame onto whichever monitor its centre landed on. Landing on another monitor carries
+    /// the layout over at the same relative place and size (a full-screen layout fills the new screen); if that
+    /// monitor already has a layout, the two swap.
+    /// </summary>
     private void Land(ZoneContainer c, DragState d)
     {
         var target = MonitorAt(CentreOf(c.Frame));
-        if (target is null)
+        var source = Monitors.All().FirstOrDefault(m => m.DeviceName == d.StartDevice);
+        if (target is null || source is null)
         {
             c.Frame = d.StartFrame;
             return;
         }
 
-        if (target.DeviceName != d.StartDevice)
+        if (target.DeviceName == d.StartDevice)
         {
-            if (ContainerOn(target.DeviceName) is { } other && other != c)
-            {
-                Notice?.Invoke($"{target.ShortName} already has a zone layout — moved back.");
-                c.Frame = d.StartFrame;
-                return;
-            }
-            c.DeviceName = target.DeviceName;
-            Rehomed?.Invoke(d.StartDevice, target);
+            c.Frame = ZoneContainer.ClampInto(c.Frame, target.WorkArea);
+            return;
         }
 
-        c.Frame = ZoneContainer.ClampInto(c.Frame, target.WorkArea);
+        c.Frame = ZoneContainer.MoveBetween(d.StartFrame, source.WorkArea, target.WorkArea);
+        c.DeviceName = target.DeviceName;
+
+        if (ContainerOn(target.DeviceName) is { } other && other != c)
+        {
+            other.Frame = ZoneContainer.MoveBetween(other.Frame, target.WorkArea, source.WorkArea);
+            other.DeviceName = source.DeviceName;
+            Reflow(other);
+            BringToFront(other);
+            Swapped?.Invoke(source, target);
+            Notice?.Invoke($"Swapped the layouts on {source.ShortName} and {target.ShortName}.");
+        }
+        else
+        {
+            Rehomed?.Invoke(d.StartDevice, target);
+        }
+        BringToFront(c);
     }
 
     private void FillMonitor(ZoneContainer c)
     {
         if (MonitorOf(c) is not { } monitor) return;
-        if (_handles.TryGetValue(c, out var h)) h.Chip.Collapse();
+        BeginChange("fill screen");
         c.Frame = monitor.WorkArea;
         Reflow(c);
+        EndChange();
         Save();
         SyncHandles();
     }
@@ -867,8 +1005,8 @@ internal sealed class ZoneContainerService : IDisposable
     {
         _sync.Stop();
         _apply.Stop();
-        _hover.Stop();
-        _broadcasts?.Dispose();
+        ExitEdit();
         foreach (var c in _handles.Keys.ToList()) HideHandles(c);
+        _broadcasts?.Dispose();
     }
 }

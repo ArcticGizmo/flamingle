@@ -75,6 +75,8 @@ public partial class App : Application
             _containers.Unslotted += hwnd => _controller.LeaveZoneFlock(hwnd);
             _containers.Rehomed += (from, to) =>
                 _registry.RehomeZoneFlocks(from, to.DeviceName, g => FlockController.ZoneFlockName(to.DeviceName, g.ZoneDesktop));
+            _containers.Swapped += (a, b) =>
+                _registry.SwapZoneFlocks(a.DeviceName, b.DeviceName, g => FlockController.ZoneFlockName(g.ZoneMonitor!, g.ZoneDesktop));
             _containers.LayoutPicked += ApplyLayout;
             _containers.GapsToggled += SetGaps;
             _containers.MinimiseRequested += device =>
@@ -96,7 +98,7 @@ public partial class App : Application
             _hotkeys = new HotkeyService();
             _hotkeys.NewFlockRequested += ShowPicker;
             _hotkeys.ToggleRequested += () => _controller.ToggleFocused();
-            _hotkeys.LayoutMenuRequested += () => _containers.ToggleMenuAtCursor();
+            _hotkeys.LayoutMenuRequested += () => _containers.ToggleEditAtCursor();
             _hotkeys.SlotRequested += slot => _controller.ToggleSlot(slot);
             ApplyHotkeys();
 
@@ -252,7 +254,6 @@ public partial class App : Application
             || old.LayoutMenuHotkey != settings.LayoutMenuHotkey || old.SlotHotkeyModifiers != settings.SlotHotkeyModifiers)
             ApplyHotkeys();
         if (old.ZoneSpacing != settings.ZoneSpacing) _containers?.ReflowAll();
-
         _taskbar?.Sync();
         _settingsWindow?.Refresh();
     }

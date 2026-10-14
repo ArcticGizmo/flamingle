@@ -66,12 +66,7 @@ internal sealed class DividerHandleWindow : Window
     public event Action? DoubleClicked;
 
     /// <summary>Place the strip over <paramref name="rect"/> (physical px) on a monitor at <paramref name="scale"/>.</summary>
-    public void Place(Flamingle.Core.Geometry.PixelRect rect, double scale)
-    {
-        Position = new PixelPoint(rect.X, rect.Y);
-        Width = Math.Max(1, rect.Width / scale);
-        Height = Math.Max(1, rect.Height / scale);
-    }
+    public void Place(Flamingle.Core.Geometry.PixelRect rect, double scale) => OverlayPlacement.Place(this, rect, scale);
 
     protected override void OnOpened(EventArgs e)
     {

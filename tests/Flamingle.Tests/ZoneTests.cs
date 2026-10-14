@@ -168,6 +168,21 @@ public class ZoneContainerTests
     }
 
     [Fact]
+    public void MoveBetween_makes_a_full_screen_layout_fill_the_other_monitor()
+    {
+        var big = new PixelRect(1920, 0, 2560, 1400);
+        Assert.Equal(big, ZoneContainer.MoveBetween(Work, Work, big));
+    }
+
+    [Fact]
+    public void MoveBetween_keeps_a_smaller_frame_in_the_same_relative_place()
+    {
+        var big = new PixelRect(1920, 0, 3840, 2080);   // twice the size
+        Assert.Equal(new PixelRect(2120, 100, 1920, 1040),
+            ZoneContainer.MoveBetween(new PixelRect(100, 50, 960, 520), Work, big));
+    }
+
+    [Fact]
     public void Custom_splits_apply_and_reset_with_a_new_preset()
     {
         var c = new ZoneContainer(@"\\.\DISPLAY1", "columns-2", new PixelRect(0, 0, 1000, 500));
@@ -237,6 +252,19 @@ public class ZoneContainerTests
 public class ZoneFlockRegistryTests
 {
     private static FlockMember M(long handle) => new(handle, 1, $"app{handle}", $"Window {handle}");
+
+    [Fact]
+    public void Swapping_layouts_swaps_their_zone_flocks()
+    {
+        var reg = new FlockRegistry();
+        var one = reg.Create("Zones · DISPLAY1", [M(1)], zoneMonitor: @"\\.\DISPLAY1");
+        var two = reg.Create("Zones · DISPLAY2", [M(2)], zoneMonitor: @"\\.\DISPLAY2");
+
+        reg.SwapZoneFlocks(@"\\.\DISPLAY1", @"\\.\DISPLAY2", g => $"Zones · {g.ZoneMonitor![4..]}");
+
+        Assert.Equal((@"\\.\DISPLAY2", "Zones · DISPLAY2"), (one.ZoneMonitor, one.Name));
+        Assert.Equal((@"\\.\DISPLAY1", "Zones · DISPLAY1"), (two.ZoneMonitor, two.Name));
+    }
 
     [Fact]
     public void Add_moves_a_window_into_an_existing_flock()

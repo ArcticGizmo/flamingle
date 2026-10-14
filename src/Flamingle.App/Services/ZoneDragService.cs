@@ -51,7 +51,24 @@ internal sealed class ZoneDragService : IDisposable
         public IReadOnlyList<PixelRect> Zones { get; set; } = [];
         public int SpanAnchor { get; set; } = -1;
         public IReadOnlyList<int> Selection { get; set; } = [];
+
+        // The snap strip: what's picked in it (null when nothing is).
+        public StripPick? Strip { get; set; }
+        public int StripAnchor { get; set; } = -1;
     }
+
+    private sealed record StripPick(MonitorInfo Monitor, string LayoutId, IReadOnlyList<int> Selection);
+
+    // The snap strip, and the zones it's previewing on screen.
+    private SnapStripWindow? _strip;
+    private MonitorInfo? _stripMonitor;
+    private ZoneOverlayWindow? _stripOverlay;
+    private string? _stripOverlayLayout;
+
+    // How close to the top of a monitor's work area (DIP) a dragged window's cursor brings down the strip, and how
+    // far around the strip (DIP) it can stray before the strip goes away.
+    private const double StripTrigger = 12;
+    private const double StripReach = 48;
 
     public ZoneDragService(WinEventHooks hooks, Func<AppSettings> settings, ZoneContainerService containers)
     {
@@ -125,6 +142,15 @@ internal sealed class ZoneDragService : IDisposable
         {
             CheckRestoreStuck(drag, cursor);
             MaybeRestoreSize(drag, cursor);
+        }
+
+        // The snap strip, unless the zone key is held (that's a deliberate zone drag).
+        if (_settings().SnapStrip && drag.IsResize == false && !ZoneKeyHeld() && StripTick(drag, cursor))
+        {
+            drag.Selection = [];
+            drag.SpanAnchor = -1;
+            HideOverlays();
+            return;
         }
 
         if (!ModifierHeld(_settings().ZoneDragModifier)) { ClearSelection(drag); return; }
@@ -297,6 +323,11 @@ internal sealed class ZoneDragService : IDisposable
             return;
         }
         if (!drag.Moved) return;
+        if (drag.Strip is { } pick)
+        {
+            DropOnStrip(hwnd, drag, pick);
+            return;
+        }
         if (drag.Selection.Count > 0 && drag.Monitor is { } monitor)
         {
             var target = ZoneMath.Bounds(drag.Zones, drag.Selection);
@@ -312,6 +343,115 @@ internal sealed class ZoneDragService : IDisposable
             Win32.GetCursorPos(out var cursor);
             _containers.Unslot(hwnd, cursor.x);
         }
+    }
+
+    // ---- Snap strip ----
+
+    /// <summary>
+    /// One tick of the snap strip. Drops it down when the cursor reaches the top of a monitor; while it's down,
+    /// tracks which zone of which layout the cursor is over (Ctrl spans, as with zones) and previews it full size.
+    /// Returns true while the strip owns the drag (the cursor is on or near it).
+    /// </summary>
+    private bool StripTick(Drag drag, Win32.POINT cursor)
+    {
+        var monitor = drag.Monitors.FirstOrDefault(m => m.Contains(cursor.x, cursor.y));
+        var nearTop = monitor is not null && cursor.y <= monitor.WorkArea.Y + StripTrigger * monitor.Scale;
+
+        if (_strip is null)
+        {
+            if (!nearTop) return false;
+            _stripMonitor = monitor!;
+            _strip = new SnapStripWindow(monitor!, _containers.LayoutIdFor(monitor!));
+            _strip.Show();
+        }
+
+        var m = _stripMonitor!;
+        var reach = (int)(StripReach * m.Scale);
+        var area = _strip.ScreenBounds;
+        var onStrip = cursor.x >= area.X - reach && cursor.x < area.Right + reach
+                      && cursor.y >= m.Bounds.Y && cursor.y < area.Bottom + reach;
+        if (!onStrip && !(nearTop && monitor?.Handle == m.Handle))
+        {
+            HideStrip(drag);
+            return false;
+        }
+
+        if (_strip.HitTest(cursor.x, cursor.y) is not { } hit)
+        {
+            // On the strip but between tiles: keep the last pick (so a drop in a gap still lands), just no new one.
+            return true;
+        }
+
+        var zones = _containers.ZonesFor(m, hit.LayoutId);
+        IReadOnlyList<int> selection;
+        if (Win32.IsKeyDown(Win32.VK_CONTROL) && drag.Strip?.LayoutId == hit.LayoutId)
+        {
+            if (drag.StripAnchor < 0) drag.StripAnchor = hit.Zone;
+            selection = ZoneMath.Span(zones, drag.StripAnchor, hit.Zone);
+        }
+        else
+        {
+            drag.StripAnchor = Win32.IsKeyDown(Win32.VK_CONTROL) ? hit.Zone : -1;
+            selection = [hit.Zone];
+        }
+
+        drag.Strip = new StripPick(m, hit.LayoutId, selection);
+        _strip.Highlight(hit.LayoutId, selection);
+        PreviewStripPick(m, hit.LayoutId, zones, selection);
+        return true;
+    }
+
+    /// <summary>Show the picked layout's zones full size on the monitor, with the picked one(s) lit.</summary>
+    private void PreviewStripPick(MonitorInfo monitor, string layoutId, IReadOnlyList<PixelRect> zones, IReadOnlyList<int> selection)
+    {
+        if (_stripOverlay is null || _stripOverlayLayout != layoutId)
+        {
+            _stripOverlay?.Close();
+            _stripOverlay = new ZoneOverlayWindow(monitor, zones, ZoneLayout.ById(layoutId).Name);
+            _stripOverlayLayout = layoutId;
+            _stripOverlay.Show();
+            // The strip stays on top of its own preview (raised without activation — the drag must keep focus).
+            if (_strip?.TryGetPlatformHandle()?.Handle is { } strip)
+                Win32.SetWindowPos(strip, Win32.HWND_TOPMOST, 0, 0, 0, 0,
+                    Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
+        }
+        _stripOverlay.Highlight(selection.ToList());
+    }
+
+    private void HideStrip(Drag? drag)
+    {
+        if (drag is not null)
+        {
+            drag.Strip = null;
+            drag.StripAnchor = -1;
+        }
+        _strip?.Close();
+        _strip = null;
+        _stripMonitor = null;
+        _stripOverlay?.Close();
+        _stripOverlay = null;
+        _stripOverlayLayout = null;
+    }
+
+    /// <summary>Dropped on the strip: switch the monitor to that layout if it isn't already, then snap the window
+    /// into the picked zone(s) — exactly like a zone drop from there on.</summary>
+    private void DropOnStrip(IntPtr hwnd, Drag drag, StripPick pick)
+    {
+        if (pick.LayoutId != _containers.LayoutIdFor(pick.Monitor))
+            _containers.PickLayout(pick.Monitor, pick.LayoutId);
+
+        var zones = _containers.ZonesFor(pick.Monitor);
+        var target = ZoneMath.Bounds(zones, pick.Selection);
+        WindowPlacer.Fit(hwnd, target);
+        // Windows may apply its own edge-snap (maximise at the top edge) after the drop; re-fit once it settles.
+        DispatcherTimer.RunOnce(() => WindowPlacer.Fit(hwnd, target), TimeSpan.FromMilliseconds(120));
+        _containers.Snapped(hwnd, pick.Monitor, pick.Selection, drag.StartedMaximised ? null : drag.StartRect);
+    }
+
+    private bool ZoneKeyHeld()
+    {
+        var key = (_settings().ZoneDragModifier ?? "").Trim();
+        return !string.Equals(key, "none", StringComparison.OrdinalIgnoreCase) && key.Length > 0 && ModifierHeld(key);
     }
 
     private void ShowOverlays(Drag drag)
@@ -339,6 +479,7 @@ internal sealed class ZoneDragService : IDisposable
         _timer.Stop();
         _drag = null;
         HideOverlays();
+        HideStrip(null);
     }
 
     private void HideOverlays()

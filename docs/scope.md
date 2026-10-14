@@ -57,6 +57,12 @@ FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on Po
 - Hold a modifier (Shift) while dragging and the zones show on every monitor. Drop snaps the window
   into a zone; Ctrl spans several zones.
 - Each monitor gets one of a set of built-in layout templates, chosen from the tray. No editor yet.
+- Dragging a window to the top of a monitor drops down a *snap strip* of layouts (toggle) — Flamingle's take on
+  Windows' snap bar, which should be turned off alongside it. Dropping on a zone of another layout switches the
+  monitor to that layout.
+- Layouts show nothing on screen. The edit-layout shortcut (Alt+Shift+E) puts the layout under the cursor into
+  *edit mode*: an outline you drag from anywhere to move it (dropping it on a monitor that has a layout swaps the
+  two), its split strips, and its panel. The old always-visible pull-tab is gone.
 - Windows dropped into zones on a monitor form that monitor's *zone flock*. This is a toggle; it
   replaces guessing Snap Groups.
 - Zone flocks are per monitor *per virtual desktop* (toggle, on by default), so zoned windows on

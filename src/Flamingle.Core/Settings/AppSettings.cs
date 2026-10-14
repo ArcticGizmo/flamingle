@@ -14,9 +14,14 @@ public sealed record AppSettings
     /// <summary>Minimise / restore the flock holding the focused window (else the last-used flock).</summary>
     public string ToggleHotkey { get; init; } = "Alt+Shift+M";
 
-    /// <summary>Opens (or closes) the layout tab's panel on the monitor under the cursor — as if the tab was
-    /// clicked.</summary>
+    /// <summary>Puts the layout on the monitor under the cursor into edit mode (its panel, split strips, and drag
+    /// anywhere to move it) — or takes it out again.</summary>
     public string LayoutMenuHotkey { get; init; } = "Alt+Shift+E";
+
+    /// <summary>Experimental: dragging a window to the top of a monitor drops down a strip of layouts — drop it on a
+    /// zone to snap it there (switching the monitor to that layout if needed). Flamingle's take on Windows' snap
+    /// bar; turn Windows' off to avoid getting both.</summary>
+    public bool SnapStrip { get; init; } = true;
 
     /// <summary>Modifiers for the per-slot hotkeys: <c>{modifiers}+1</c> … <c>+9</c> toggle flock 1–9.
     /// Empty disables them.</summary>

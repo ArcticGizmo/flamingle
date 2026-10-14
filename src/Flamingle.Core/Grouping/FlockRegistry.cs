@@ -76,6 +76,20 @@ public sealed class FlockRegistry
         Changed?.Invoke();
     }
 
+    /// <summary>Two zone layouts swapped monitors: each monitor's zone flocks move to the other, renamed.
+    /// <paramref name="nameFor"/> sees each flock already on its new monitor.</summary>
+    public void SwapZoneFlocks(string a, string b, Func<Flock, string> nameFor)
+    {
+        if (a == b) return;
+        var fromA = ZoneFlocksOn(a).ToList();
+        var fromB = ZoneFlocksOn(b).ToList();
+        if (fromA.Count == 0 && fromB.Count == 0) return;
+        foreach (var group in fromA) group.ZoneMonitor = b;
+        foreach (var group in fromB) group.ZoneMonitor = a;
+        foreach (var group in fromA.Concat(fromB)) group.Name = nameFor(group);
+        Changed?.Invoke();
+    }
+
     /// <summary>Replace everything (used when loading from disk). Empty groups are dropped.</summary>
     public void Load(IEnumerable<Flock> groups)
     {

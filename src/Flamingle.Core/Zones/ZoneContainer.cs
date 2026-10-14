@@ -130,6 +130,21 @@ public sealed class ZoneContainer
         return ClampInto(PixelRect.FromEdges(left, top, right, bottom), newWorkArea);
     }
 
+    /// <summary>
+    /// Carry a frame from one monitor to another: the same place and size relative to each work area (so a layout
+    /// filling one screen fills the other, whatever their sizes), then fitted inside the new work area.
+    /// </summary>
+    public static PixelRect MoveBetween(PixelRect frame, PixelRect fromWorkArea, PixelRect toWorkArea)
+    {
+        if (fromWorkArea.Width <= 0 || fromWorkArea.Height <= 0) return ClampInto(frame, toWorkArea);
+        double Sx(int x) => toWorkArea.X + (x - fromWorkArea.X) * (double)toWorkArea.Width / fromWorkArea.Width;
+        double Sy(int y) => toWorkArea.Y + (y - fromWorkArea.Y) * (double)toWorkArea.Height / fromWorkArea.Height;
+        var moved = PixelRect.FromEdges(
+            (int)Math.Round(Sx(frame.X)), (int)Math.Round(Sy(frame.Y)),
+            (int)Math.Round(Sx(frame.Right)), (int)Math.Round(Sy(frame.Bottom)));
+        return ClampInto(moved, toWorkArea);
+    }
+
     /// <summary>Move the frame by an offset (no clamping — that happens on drop).</summary>
     public static PixelRect Offset(PixelRect frame, int dx, int dy) => frame with { X = frame.X + dx, Y = frame.Y + dy };
 }

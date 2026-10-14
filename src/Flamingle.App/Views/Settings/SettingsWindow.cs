@@ -261,6 +261,16 @@ internal sealed class SettingsWindow : Window
             Toggle(s.ZoneFlockPerDesktop, on => Update(x => x with { ZoneFlockPerDesktop = on })),
             s.ZonesFormFlock));
 
+        page.Children.Add(Row("Snap strip at the top of the screen",
+            "Drag a window to the top of a monitor to drop down a strip of layouts; drop it on a zone to snap it there.",
+            Toggle(s.SnapStrip, on => Update(x => x with { SnapStrip = on }))));
+        if (s.SnapStrip && WindowsSnapSettings.IsOn(WindowsSnapSettings.SnapBar))
+        {
+            page.Children.Add(Row("Windows' snap bar is on too",
+                "Both will drop down. Turn Windows' off on the Windows snapping page (then restart Explorer).",
+                FlatButton("Windows snapping…", () => Select("snapping"))));
+        }
+
         page.Children.Add(Row("Gaps between windows", "Leave space between zones and around the screen edge.",
             Toggle(s.ZoneGaps, _host.SetGaps)));
 
@@ -441,7 +451,9 @@ internal sealed class SettingsWindow : Window
             ShortcutEditor(s.NewFlockHotkey, v => Update(x => x with { NewFlockHotkey = v }))));
         page.Children.Add(Row("Minimise / restore", "The flock holding the focused window, else the last one used.",
             ShortcutEditor(s.ToggleHotkey, v => Update(x => x with { ToggleHotkey = v }))));
-        page.Children.Add(Row("Layout menu", "Opens (or closes) the layout tab's panel on the monitor under the cursor.",
+        page.Children.Add(Row("Edit layout",
+            "Puts the layout under the cursor into edit mode: drag anywhere to move it, adjust its splits, pick a " +
+            "layout. Ctrl+Z / Ctrl+Y undo and redo layout changes. Press again (or Esc) to finish.",
             ShortcutEditor(s.LayoutMenuHotkey, v => Update(x => x with { LayoutMenuHotkey = v }))));
 
         page.Children.Add(Row("Flock slots", "These keys plus 1–9 minimise / restore flock 1–9. None turns them off.",
