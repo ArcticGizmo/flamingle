@@ -138,6 +138,36 @@ public class ZoneContainerTests
     }
 
     [Fact]
+    public void Refit_grows_a_full_screen_frame_when_a_side_panel_closes()
+    {
+        var withPanel = new PixelRect(0, 0, 1520, 1040);   // a 400 px panel docked on the right
+        Assert.Equal(Work, ZoneContainer.Refit(withPanel, withPanel, Work));
+    }
+
+    [Fact]
+    public void Refit_shrinks_a_full_screen_frame_when_a_side_panel_docks()
+    {
+        var withPanel = new PixelRect(400, 0, 1520, 1040);   // docked on the left
+        Assert.Equal(withPanel, ZoneContainer.Refit(Work, Work, withPanel));
+    }
+
+    [Fact]
+    public void Refit_leaves_edges_the_user_moved_away_from_the_screen_edge()
+    {
+        var frame = new PixelRect(0, 100, 1200, 800);   // flush left only
+        var wider = new PixelRect(0, 0, 2000, 1040);
+        Assert.Equal(frame, ZoneContainer.Refit(frame, Work, wider));
+    }
+
+    [Fact]
+    public void Refit_keeps_a_floating_frame_on_screen_when_the_work_area_shrinks()
+    {
+        var frame = new PixelRect(1000, 100, 800, 600);
+        var withPanel = new PixelRect(0, 0, 1520, 1040);
+        Assert.Equal(new PixelRect(720, 100, 800, 600), ZoneContainer.Refit(frame, Work, withPanel));
+    }
+
+    [Fact]
     public void Custom_splits_apply_and_reset_with_a_new_preset()
     {
         var c = new ZoneContainer(@"\\.\DISPLAY1", "columns-2", new PixelRect(0, 0, 1000, 500));

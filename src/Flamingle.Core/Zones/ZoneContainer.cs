@@ -114,16 +114,35 @@ public sealed class ZoneContainer
         return new PixelRect(x, y, w, h);
     }
 
+    /// <summary>
+    /// The monitor's work area changed — an app bar (a docked side panel such as Perch's, or the taskbar) came,
+    /// went or resized. Each edge of the frame that was flush with the old work area follows it to the new one,
+    /// so a layout filling the screen keeps filling it; then the frame is fitted inside the new work area.
+    /// </summary>
+    public static PixelRect Refit(PixelRect frame, PixelRect oldWorkArea, PixelRect newWorkArea, int tolerance = 2)
+    {
+        static bool Flush(int a, int b, int tolerance) => Math.Abs(a - b) <= tolerance;
+
+        var left = Flush(frame.X, oldWorkArea.X, tolerance) ? newWorkArea.X : frame.X;
+        var top = Flush(frame.Y, oldWorkArea.Y, tolerance) ? newWorkArea.Y : frame.Y;
+        var right = Flush(frame.Right, oldWorkArea.Right, tolerance) ? newWorkArea.Right : frame.Right;
+        var bottom = Flush(frame.Bottom, oldWorkArea.Bottom, tolerance) ? newWorkArea.Bottom : frame.Bottom;
+        return ClampInto(PixelRect.FromEdges(left, top, right, bottom), newWorkArea);
+    }
+
     /// <summary>Move the frame by an offset (no clamping — that happens on drop).</summary>
     public static PixelRect Offset(PixelRect frame, int dx, int dy) => frame with { X = frame.X + dx, Y = frame.Y + dy };
 }
 
 /// <summary>The on-disk form of the containers (<c>zones.json</c>).</summary>
+/// <param name="WorkArea">The monitor's work area when the frame was saved — so on the next start the frame can
+/// follow any app bar that has since come or gone (<see cref="ZoneContainer.Refit"/>). Null in older files.</param>
 public sealed record ZoneContainerState(
-    string DeviceName, string LayoutId, PixelRect Frame, List<ZoneSlot> Slots, List<ZoneFraction>? CustomZones = null)
+    string DeviceName, string LayoutId, PixelRect Frame, List<ZoneSlot> Slots, List<ZoneFraction>? CustomZones = null,
+    PixelRect? WorkArea = null)
 {
-    public static ZoneContainerState From(ZoneContainer c)
-        => new(c.DeviceName, c.LayoutId, c.Frame, [.. c.Slots.Values], c.CustomZones?.ToList());
+    public static ZoneContainerState From(ZoneContainer c, PixelRect? workArea = null)
+        => new(c.DeviceName, c.LayoutId, c.Frame, [.. c.Slots.Values], c.CustomZones?.ToList(), workArea);
 
     public ZoneContainer ToContainer(Func<ZoneSlot, bool> isAlive)
     {

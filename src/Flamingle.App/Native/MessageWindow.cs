@@ -3,13 +3,17 @@ using System.Runtime.InteropServices;
 namespace Flamingle.App.Native;
 
 /// <summary>
-/// A hidden message-only (<c>HWND_MESSAGE</c>) window that owns the global hotkey registrations and
-/// receives <c>WM_HOTKEY</c>. Create it on the Avalonia UI thread — that thread pumps Win32 messages, so
-/// <see cref="HotkeyPressed"/> fires there. (Copied from shrike.)
+/// A hidden window for receiving Win32 messages: by default message-only (<c>HWND_MESSAGE</c>) — enough for
+/// <c>WM_HOTKEY</c> — or, with <c>receivesBroadcasts</c>, a never-shown top-level window, since message-only
+/// windows don't get system broadcasts such as <c>WM_SETTINGCHANGE</c>. Create it on the Avalonia UI thread —
+/// that thread pumps Win32 messages, so the events fire there. (Copied from shrike.)
 /// </summary>
 internal sealed class MessageWindow : IDisposable
 {
     private const int WM_HOTKEY = 0x0312;
+    private const uint WM_SETTINGCHANGE = 0x001A;
+    private const uint WM_DISPLAYCHANGE = 0x007E;
+    private const uint WS_EX_TOOLWINDOW = 0x00000080;
     private static readonly IntPtr HWND_MESSAGE = new(-3);
 
     // Held so the unmanaged function pointer stays alive for the window's lifetime.
@@ -21,9 +25,15 @@ internal sealed class MessageWindow : IDisposable
     /// <summary>Raised on the UI thread with the hotkey id when a registered combo fires.</summary>
     public event Action<int>? HotkeyPressed;
 
+    /// <summary><c>WM_SETTINGCHANGE</c> (its wParam — e.g. <c>SPI_SETWORKAREA</c>). Broadcast windows only.</summary>
+    public event Action<uint>? SettingChanged;
+
+    /// <summary><c>WM_DISPLAYCHANGE</c>: a monitor was added, removed or changed resolution. Broadcast windows only.</summary>
+    public event Action? DisplayChanged;
+
     public IntPtr Handle { get; }
 
-    public MessageWindow(string className)
+    public MessageWindow(string className, bool receivesBroadcasts = false)
     {
         _className = className;
         _hInstance = GetModuleHandleW(null);
@@ -41,8 +51,12 @@ internal sealed class MessageWindow : IDisposable
             throw new InvalidOperationException(
                 $"RegisterClassEx failed (0x{Marshal.GetLastWin32Error():X8}).");
 
-        Handle = CreateWindowExW(0, _className, _className, 0, 0, 0, 0, 0,
-            HWND_MESSAGE, IntPtr.Zero, _hInstance, IntPtr.Zero);
+        // A top-level window is never shown (no WS_VISIBLE) and is a tool window, so it stays out of Alt+Tab.
+        Handle = receivesBroadcasts
+            ? CreateWindowExW(WS_EX_TOOLWINDOW, _className, _className, 0, 0, 0, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, _hInstance, IntPtr.Zero)
+            : CreateWindowExW(0, _className, _className, 0, 0, 0, 0, 0,
+                HWND_MESSAGE, IntPtr.Zero, _hInstance, IntPtr.Zero);
 
         if (Handle == IntPtr.Zero)
             throw new InvalidOperationException(
@@ -59,6 +73,10 @@ internal sealed class MessageWindow : IDisposable
     {
         if (msg == WM_HOTKEY)
             HotkeyPressed?.Invoke((int)wParam);
+        else if (msg == WM_SETTINGCHANGE)
+            SettingChanged?.Invoke((uint)wParam);
+        else if (msg == WM_DISPLAYCHANGE)
+            DisplayChanged?.Invoke();
         return DefWindowProcW(hWnd, msg, wParam, lParam);
     }
 

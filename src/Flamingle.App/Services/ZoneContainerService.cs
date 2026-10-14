@@ -30,6 +30,12 @@ internal sealed class ZoneContainerService : IDisposable
     private readonly List<ZoneContainer> _containers = [];
     private readonly Dictionary<ZoneContainer, Handles> _handles = [];
 
+    // Each monitor's work area as last seen, to notice app bars coming and going.
+    private readonly Dictionary<string, PixelRect> _workAreas = [];
+
+    // Receives Windows' work-area / display-change broadcasts.
+    private MessageWindow? _broadcasts;
+
     // Layouts whose divider strips are showing ("Adjust splits").
     private readonly HashSet<ZoneContainer> _adjusting = [];
 
@@ -141,12 +147,19 @@ internal sealed class ZoneContainerService : IDisposable
             var monitor = monitors.FirstOrDefault(m => m.DeviceName == state.DeviceName);
             if (monitor is null) continue;   // that monitor's gone; forget the container
             var c = state.ToContainer(IsAlive);
-            c.Frame = ZoneContainer.ClampInto(c.Frame, monitor.WorkArea);
+            // A side panel may have docked or closed since the last run.
+            c.Frame = state.WorkArea is { } then
+                ? ZoneContainer.Refit(c.Frame, then, monitor.WorkArea)
+                : ZoneContainer.ClampInto(c.Frame, monitor.WorkArea);
             _containers.Add(c);
         }
+        foreach (var m in monitors) _workAreas[m.DeviceName] = m.WorkArea;
         Save();
 
         _hooks.ForegroundChanged += OnForegroundChanged;
+        _broadcasts = new MessageWindow("FlamingleWorkAreaWindow", receivesBroadcasts: true);
+        _broadcasts.SettingChanged += OnSettingChanged;
+        _broadcasts.DisplayChanged += () => Dispatcher.UIThread.Post(FollowWorkAreas);
         _sync.Start();
         _hover.Start();
     }
@@ -283,6 +296,47 @@ internal sealed class ZoneContainerService : IDisposable
 
         foreach (var orphan in _handles.Keys.Where(k => !_containers.Contains(k)).ToList())
             HideHandles(orphan);
+    }
+
+    /// <summary>
+    /// A monitor's work area changed — an app bar came or went (a docked side panel like Perch's opening or
+    /// closing, the taskbar resizing). Layouts there follow it: edges that were flush with the old work area move
+    /// to the new one, and the windows re-flow, so the space a closed panel leaves behind gets used. Driven by
+    /// Windows' <c>SPI_SETWORKAREA</c> / display-change broadcasts, not polled.
+    /// </summary>
+    private void FollowWorkAreas()
+    {
+        var changed = false;
+        foreach (var monitor in Monitors.All())
+        {
+            var now = monitor.WorkArea;
+            if (!_workAreas.TryGetValue(monitor.DeviceName, out var was))
+            {
+                _workAreas[monitor.DeviceName] = now;
+                continue;
+            }
+            if (was == now) continue;
+            if (ContainerOn(monitor.DeviceName) is { } busy && (_drag?.Container == busy || _resize?.Container == busy))
+                continue;   // mid-drag: caught up when the drag ends
+
+            _workAreas[monitor.DeviceName] = now;
+            if (ContainerOn(monitor.DeviceName) is not { } c) continue;
+            c.Frame = ZoneContainer.Refit(c.Frame, was, now);
+            Reflow(c);
+            changed = true;
+        }
+
+        if (!changed) return;
+        Save();
+        SyncHandles();
+    }
+
+    private const uint SPI_SETWORKAREA = 0x002F;
+
+    private void OnSettingChanged(uint what)
+    {
+        // Act once the broadcast has been delivered (it's a sent message — don't move windows inside it).
+        if (what == SPI_SETWORKAREA) Dispatcher.UIThread.Post(FollowWorkAreas);
     }
 
     private void ShowHandles(ZoneContainer c, MonitorInfo? monitor)
@@ -604,6 +658,7 @@ internal sealed class ZoneContainerService : IDisposable
     {
         if (_resize is not { } r || r.Slot.Handle != (long)hwnd) return;
         _resize = null;
+        FollowWorkAreas();   // in case the work area changed mid-resize
         Reflow(r.Container);
         Save();
         SyncHandles();
@@ -697,6 +752,7 @@ internal sealed class ZoneContainerService : IDisposable
         ApplyPendingDrag();
         _apply.Stop();
         _drag = null;
+        FollowWorkAreas();   // in case the work area changed mid-drag
 
         if (d.Kind == DragKind.Move)
             Land(c, d);
@@ -803,13 +859,16 @@ internal sealed class ZoneContainerService : IDisposable
 
     private static MonitorInfo? MonitorAt((int X, int Y) p) => Monitors.All().FirstOrDefault(m => m.Contains(p.X, p.Y));
 
-    private void Save() => _file.Save(_containers.Select(ZoneContainerState.From).ToList());
+    private void Save() => _file.Save(_containers
+        .Select(c => ZoneContainerState.From(c, _workAreas.TryGetValue(c.DeviceName, out var w) ? w : null))
+        .ToList());
 
     public void Dispose()
     {
         _sync.Stop();
         _apply.Stop();
         _hover.Stop();
+        _broadcasts?.Dispose();
         foreach (var c in _handles.Keys.ToList()) HideHandles(c);
     }
 }
