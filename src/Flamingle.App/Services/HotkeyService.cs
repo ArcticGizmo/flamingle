@@ -30,11 +30,18 @@ internal sealed class HotkeyService : IDisposable
     public event Action? LayoutMenuRequested;
     public event Action<int>? SlotRequested;
 
-    /// <summary>(Re-)register every hotkey. Returns the combos the OS refused (usually: another app owns them).</summary>
-    public IReadOnlyList<string> Apply(AppSettings settings)
+    /// <summary>Let go of every hotkey for now (while the settings window records a new combo); <see cref="Apply"/>
+    /// takes them back.</summary>
+    public void Suspend()
     {
         foreach (var id in _registered) _window.UnregisterHotkey(id);
         _registered.Clear();
+    }
+
+    /// <summary>(Re-)register every hotkey. Returns the combos the OS refused (usually: another app owns them).</summary>
+    public IReadOnlyList<string> Apply(AppSettings settings)
+    {
+        Suspend();
 
         var failed = new List<string>();
         Register(NewFlockId, settings.NewFlockHotkey, failed);

@@ -3,8 +3,8 @@ using System.Text.Json.Serialization;
 namespace Flamingle.Core.Settings;
 
 /// <summary>
-/// User settings, stored as <c>settings.json</c> in the data folder. No settings UI yet — edit the file
-/// (tray → "Open data folder") and restart, or flip the experimental toggles from the tray menu.
+/// User settings, stored as <c>settings.json</c> in the data folder. Edited live from the settings window
+/// (tray → "Settings…"); the file can also be edited by hand (restart to pick it up).
 /// </summary>
 public sealed record AppSettings
 {

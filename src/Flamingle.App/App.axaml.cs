@@ -6,6 +6,7 @@ using Avalonia.Markup.Xaml;
 using Flamingle.App.Native;
 using Flamingle.App.Services;
 using Flamingle.App.Views;
+using Flamingle.App.Views.Settings;
 using Flamingle.Core;
 using Flamingle.Core.Geometry;
 using Flamingle.Core.Grouping;
@@ -29,6 +30,7 @@ public partial class App : Application
     private HotkeyService? _hotkeys;
     private TrayIcon? _tray;
     private PickerWindow? _picker;
+    private SettingsWindow? _settingsWindow;
 
     private static string Version
     {
@@ -78,7 +80,7 @@ public partial class App : Application
             _containers.MinimiseRequested += device =>
             {
                 if (!_controller.MinimiseZoneFlock(device))
-                    ToastWindow.Show("This layout has no flock — turn on \"Zoned windows form a flock\" in the tray.");
+                    ToastWindow.Show("This layout has no flock — turn on \"Zoned windows form a flock\" in Settings → Zones.");
             };
             _containers.Start();
 
@@ -96,9 +98,7 @@ public partial class App : Application
             _hotkeys.ToggleRequested += () => _controller.ToggleFocused();
             _hotkeys.LayoutMenuRequested += () => _containers.ToggleMenuAtCursor();
             _hotkeys.SlotRequested += slot => _controller.ToggleSlot(slot);
-            var refused = _hotkeys.Apply(_settings);
-            if (refused.Count > 0)
-                ToastWindow.Show($"Couldn't register {string.Join(", ", refused)} — another app already uses them.");
+            ApplyHotkeys();
 
             SetupTray(desktop);
 
@@ -116,42 +116,23 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    private void SetupTray(IClassicDesktopStyleApplicationLifetime desktop)
+    private void ApplyHotkeys()
     {
-        _tray = new TrayIcon
-        {
-            Icon = TrayIconArt.Create(AppProfile.IsDev),
-            ToolTipText = $"Flamingle{AppProfile.DisplaySuffix}",
-            IsVisible = true,
-        };
-        _tray.Clicked += (_, _) => ShowPicker();
-        TrayIcon.SetIcons(this, [_tray]);
-        RebuildMenu(desktop);
+        if (_hotkeys is null) return;
+        var refused = _hotkeys.Apply(_settings);
+        if (refused.Count > 0)
+            ToastWindow.Show($"Couldn't register {string.Join(", ", refused)} — another app already uses them.");
     }
 
-    private void RebuildMenu(IClassicDesktopStyleApplicationLifetime? desktop = null)
+    /// <summary>The tray holds only the essentials; everything else lives in the settings window. Clicking the
+    /// icon opens the new-flock picker.</summary>
+    private void SetupTray(IClassicDesktopStyleApplicationLifetime desktop)
     {
-        if (_tray is null || _controller is null) return;
-        desktop ??= ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
-
         var menu = new NativeMenu();
-        menu.Add(new NativeMenuItem($"Flamingle{AppProfile.DisplaySuffix} - {Version}") { IsEnabled = false });
-        menu.Add(new NativeMenuItemSeparator());
 
-        if (_registry.Groups.Count == 0)
-            menu.Add(new NativeMenuItem("No flocks yet") { IsEnabled = false });
-
-        foreach (var group in _registry.Groups)
-            menu.Add(BuildGroupItem(group));
-
-        menu.Add(new NativeMenuItemSeparator());
-
-        var create = new NativeMenuItem(WithHotkey("New flock…", _settings.NewFlockHotkey));
-        create.Click += (_, _) => ShowPicker();
-        menu.Add(create);
-
-        menu.Add(BuildZonesItem());
-        menu.Add(BuildExperimentsItem());
+        var settings = new NativeMenuItem("Settings…");
+        settings.Click += (_, _) => ShowSettings();
+        menu.Add(settings);
 
         var openData = new NativeMenuItem("Open data folder");
         openData.Click += (_, _) => OpenDataFolder();
@@ -160,10 +141,23 @@ public partial class App : Application
         menu.Add(new NativeMenuItemSeparator());
 
         var quit = new NativeMenuItem("Quit Flamingle");
-        quit.Click += (_, _) => desktop?.Shutdown();
+        quit.Click += (_, _) => desktop.Shutdown();
         menu.Add(quit);
 
-        _tray.Menu = menu;
+        _tray = new TrayIcon
+        {
+            Icon = TrayIconArt.Create(AppProfile.IsDev),
+            Menu = menu,
+            IsVisible = true,
+        };
+        _tray.Clicked += (_, _) => ShowPicker();
+        TrayIcon.SetIcons(this, [_tray]);
+        UpdateTrayTooltip();
+    }
+
+    private void UpdateTrayTooltip()
+    {
+        if (_tray is null) return;
         _tray.ToolTipText = _registry.Groups.Count switch
         {
             0 => $"Flamingle{AppProfile.DisplaySuffix}",
@@ -172,189 +166,41 @@ public partial class App : Application
         };
     }
 
-    private NativeMenuItem BuildGroupItem(Flock group)
+    private void ShowSettings()
     {
-        var slot = _registry.SlotOf(group);
-        var sub = new NativeMenu();
-
-        var toggle = new NativeMenuItem(WithHotkey("Minimise / restore", HotkeyService.SlotHotkeyText(_settings, slot)));
-        toggle.Click += (_, _) => _controller?.Toggle(group);
-        sub.Add(toggle);
-        sub.Add(new NativeMenuItemSeparator());
-
-        foreach (var m in group.Members)
-            sub.Add(new NativeMenuItem(Shorten($"{m.ProcessName} — {m.Title}", 60)) { IsEnabled = false });
-
-        sub.Add(new NativeMenuItemSeparator());
-        var dissolve = new NativeMenuItem("Dissolve");
-        dissolve.Click += (_, _) => _registry.Dissolve(group);
-        sub.Add(dissolve);
-
-        return new NativeMenuItem($"{slot}. {group.Name} ({group.Members.Count})") { Menu = sub };
-    }
-
-    private NativeMenuItem BuildZonesItem()
-    {
-        var sub = new NativeMenu();
-
-        var modifier = string.Equals(_settings.ZoneDragModifier, "none", StringComparison.OrdinalIgnoreCase)
-            ? "on every drag"
-            : $"hold {_settings.ZoneDragModifier} while dragging";
-        var enabled = new NativeMenuItem($"Snap to zones ({modifier})")
+        if (_controller is null) return;
+        if (_settingsWindow is not null)
         {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.ZonesEnabled,
-        };
-        enabled.Click += (_, _) => UpdateSettings(_settings with { ZonesEnabled = !_settings.ZonesEnabled });
-        sub.Add(enabled);
-
-        var flock = new NativeMenuItem("Zoned windows form a flock")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.ZonesFormFlock,
-        };
-        flock.Click += (_, _) => UpdateSettings(_settings with { ZonesFormFlock = !_settings.ZonesFormFlock });
-        sub.Add(flock);
-
-        var perDesktop = new NativeMenuItem("A separate zone flock on each virtual desktop")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.ZoneFlockPerDesktop,
-            IsEnabled = _settings.ZonesFormFlock,
-        };
-        perDesktop.Click += (_, _) => UpdateSettings(_settings with { ZoneFlockPerDesktop = !_settings.ZoneFlockPerDesktop });
-        sub.Add(perDesktop);
-
-        var gaps = new NativeMenuItem($"Gaps between windows ({_settings.ZoneSpacing} px)")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.ZoneGaps,
-        };
-        gaps.Click += (_, _) => SetGaps(!_settings.ZoneGaps);
-        sub.Add(gaps);
-
-        sub.Add(new NativeMenuItemSeparator());
-
-        // One layout picker per monitor. Picking a layout flashes it on that monitor.
-        foreach (var monitor in Monitors.All())
-        {
-            var current = ZoneLayout.ById(_containers?.LayoutIdFor(monitor) ?? _settings.LayoutIdFor(monitor.DeviceName)).Id;
-            var layouts = new NativeMenu();
-            foreach (var layout in ZoneLayout.Templates)
-            {
-                var item = new NativeMenuItem(layout.Name)
-                {
-                    ToggleType = MenuItemToggleType.Radio,
-                    IsChecked = layout.Id == current,
-                };
-                item.Click += (_, _) => ApplyLayout(monitor, layout.Id);
-                layouts.Add(item);
-            }
-
-            var show = new NativeMenuItem("Show zones");
-            show.Click += (_, _) => _zones?.Preview(monitor);
-            var fill = new NativeMenuItem("Fill with open windows");
-            fill.Click += (_, _) => _containers?.FillWithOpenWindows(monitor);
-            layouts.Add(new NativeMenuItemSeparator());
-            layouts.Add(show);
-            layouts.Add(fill);
-
-            sub.Add(new NativeMenuItem(monitor.Label) { Menu = layouts });
+            _settingsWindow.Activate();
+            return;
         }
 
-        return new NativeMenuItem("Zones") { Menu = sub };
-    }
-
-    private NativeMenuItem BuildExperimentsItem()
-    {
-        var sub = new NativeMenu();
-
-        var linked = new NativeMenuItem("Linked minimise (one member takes the rest)")
+        var window = new SettingsWindow(new SettingsHost
         {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.LinkedMinimise,
-        };
-        linked.Click += (_, _) => UpdateSettings(_settings with { LinkedMinimise = !_settings.LinkedMinimise });
-        sub.Add(linked);
-
-        var correct = new NativeMenuItem("Put windows back exactly after restore")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.CorrectPositionsOnRestore,
-        };
-        correct.Click += (_, _) =>
-            UpdateSettings(_settings with { CorrectPositionsOnRestore = !_settings.CorrectPositionsOnRestore });
-        sub.Add(correct);
-
-        var restore = new NativeMenuItem("Restore size as soon as a window is pulled out of a layout")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.RestoreSizeDuringDrag,
-        };
-        restore.Click += (_, _) => UpdateSettings(_settings with { RestoreSizeDuringDrag = !_settings.RestoreSizeDuringDrag });
-        sub.Add(restore);
-
-        var linkedResize = new NativeMenuItem("Resizing a zoned window moves its neighbours")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.LinkedResize,
-        };
-        linkedResize.Click += (_, _) => UpdateSettings(_settings with { LinkedResize = !_settings.LinkedResize });
-        sub.Add(linkedResize);
-
-        var taskbar = new NativeMenuItem("Taskbar button for each flock")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.TaskbarButtons,
-        };
-        taskbar.Click += (_, _) => UpdateSettings(_settings with { TaskbarButtons = !_settings.TaskbarButtons });
-        sub.Add(taskbar);
-
-        var follow = new NativeMenuItem("Flock's taskbar button follows it across virtual desktops")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.TaskbarButtonFollowsDesktop,
-            IsEnabled = _settings.TaskbarButtons,
-        };
-        follow.Click += (_, _) =>
-            UpdateSettings(_settings with { TaskbarButtonFollowsDesktop = !_settings.TaskbarButtonFollowsDesktop });
-        sub.Add(follow);
-
-        var iconStyle = new NativeMenu();
-        foreach (var (style, label) in new[] { ("Flamingle", "Flamingle icon, numbered by monitor"), ("Apps", "Its apps' icons") })
-        {
-            var item = new NativeMenuItem(label)
+            Settings = () => _settings,
+            Update = UpdateSettings,
+            Registry = _registry,
+            ToggleFlock = group => _controller.Toggle(group),
+            NewFlock = ShowPicker,
+            LayoutIdFor = monitor => ZoneLayout.ById(_containers?.LayoutIdFor(monitor) ?? _settings.LayoutIdFor(monitor.DeviceName)).Id,
+            ApplyLayout = ApplyLayout,
+            ShowZones = monitor => _zones?.Preview(monitor),
+            FillZones = monitor => _containers?.FillWithOpenWindows(monitor),
+            SetGaps = SetGaps,
+            SuspendHotkeys = suspend =>
             {
-                ToggleType = MenuItemToggleType.Radio,
-                IsChecked = (style == "Apps") == _settings.TaskbarIconShowsApps,
-            };
-            item.Click += (_, _) => UpdateSettings(_settings with { TaskbarIconStyle = style });
-            iconStyle.Add(item);
-        }
-        sub.Add(new NativeMenuItem("Flock's taskbar icon") { Menu = iconStyle, IsEnabled = _settings.TaskbarButtons });
-
-        var previews = new NativeMenuItem("Flock's taskbar preview shows its windows (with buttons)")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.TaskbarPreviews,
-            IsEnabled = _settings.TaskbarButtons,
-        };
-        previews.Click += (_, _) => UpdateSettings(_settings with { TaskbarPreviews = !_settings.TaskbarPreviews });
-        sub.Add(previews);
-
-        var outline = new NativeMenuItem("Hovering a flock's taskbar button outlines its windows")
-        {
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = _settings.TaskbarHoverOutline,
-            IsEnabled = _settings.TaskbarButtons && _settings.TaskbarPreviews,
-        };
-        outline.Click += (_, _) => UpdateSettings(_settings with { TaskbarHoverOutline = !_settings.TaskbarHoverOutline });
-        sub.Add(outline);
-
-        return new NativeMenuItem("Experiments") { Menu = sub };
+                if (suspend) _hotkeys?.Suspend();
+                else ApplyHotkeys();
+            },
+            OpenDataFolder = OpenDataFolder,
+            Version = Version,
+        });
+        window.Closed += (_, _) => { if (ReferenceEquals(_settingsWindow, window)) _settingsWindow = null; };
+        _settingsWindow = window;
+        window.Show();
     }
 
-    /// <summary>Gaps on/off (from the tray or a layout tab): every layout re-flows straight away.</summary>
+    /// <summary>Gaps on/off (from settings or a layout tab): every layout re-flows straight away.</summary>
     private void SetGaps(bool on)
     {
         if (_settings.ZoneGaps == on) return;
@@ -362,7 +208,7 @@ public partial class App : Application
         _containers?.ReflowAll();
     }
 
-    /// <summary>Pick a monitor's layout (from the tray or a layout chip): remember it, re-flow the windows
+    /// <summary>Pick a monitor's layout (from settings or a layout chip): remember it, re-flow the windows
     /// already in its zones, and flash the new zones.</summary>
     private void ApplyLayout(MonitorInfo monitor, string layoutId)
     {
@@ -395,19 +241,28 @@ public partial class App : Application
         picker.Show();
     }
 
+    /// <summary>Persist new settings and re-apply whatever they affect.</summary>
     private void UpdateSettings(AppSettings settings)
     {
+        var old = _settings;
         _settings = settings;
         _settingsFile?.Save(settings);
-        RebuildMenu();
+
+        if (old.NewFlockHotkey != settings.NewFlockHotkey || old.ToggleHotkey != settings.ToggleHotkey
+            || old.LayoutMenuHotkey != settings.LayoutMenuHotkey || old.SlotHotkeyModifiers != settings.SlotHotkeyModifiers)
+            ApplyHotkeys();
+        if (old.ZoneSpacing != settings.ZoneSpacing) _containers?.ReflowAll();
+
         _taskbar?.Sync();
+        _settingsWindow?.Refresh();
     }
 
     private void OnRegistryChanged()
     {
         SaveFlocks();
-        RebuildMenu();
+        UpdateTrayTooltip();
         _taskbar?.Sync();
+        _settingsWindow?.RefreshFlocks();
     }
 
     private void SaveFlocks() => _flocksFile?.Save(FlockSnapshot.From(_registry));
@@ -418,10 +273,4 @@ public partial class App : Application
         Directory.CreateDirectory(dir);
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
     }
-
-    private static string WithHotkey(string label, string? hotkey)
-        => string.IsNullOrWhiteSpace(hotkey) ? label : $"{label}   ({hotkey})";
-
-    private static string Shorten(string text, int max)
-        => text.Length <= max ? text : text[..(max - 1)] + "…";
 }
