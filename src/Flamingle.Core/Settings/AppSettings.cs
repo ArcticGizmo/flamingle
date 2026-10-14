@@ -81,6 +81,15 @@ public sealed record AppSettings
     /// (otherwise it stays on the desktop it was created on).</summary>
     public bool TaskbarButtonFollowsDesktop { get; init; } = true;
 
+    /// <summary>Experimental: a flock's taskbar button shows its own preview — the flock's windows laid out as they
+    /// are on screen (pictures taken before a minimise stand in for minimised ones) — with Minimise / restore and
+    /// Dissolve buttons under it. Off: Windows' default preview of the (empty) stand-in window.</summary>
+    public bool TaskbarPreviews { get; init; } = true;
+
+    /// <summary>Experimental: hovering a flock's taskbar button outlines its windows on screen. Needs
+    /// <see cref="TaskbarPreviews"/> — the preview request is how Flamingle knows the button is hovered.</summary>
+    public bool TaskbarHoverOutline { get; init; } = true;
+
     public string LayoutIdFor(string deviceName)
         => ZoneLayouts.TryGetValue(deviceName, out var id) ? id : Zones.ZoneLayout.DefaultId;
 

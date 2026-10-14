@@ -172,6 +172,33 @@ internal static class Win32
 
     public const long WS_EX_TRANSPARENT = 0x00000020;
     public const long WS_EX_LAYERED = 0x00080000;
+    public const long WS_EX_TOPMOST = 0x00000008;
+
+    public const uint GA_ROOT = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WINDOWPLACEMENT
+    {
+        public uint length;
+        public uint flags;
+        public uint showCmd;
+        public POINT ptMinPosition;
+        public POINT ptMaxPosition;
+        public RECT rcNormalPosition;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr WindowFromPoint(POINT point);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowW(string? className, string? windowName);
 
     public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdc, IntPtr lprcMonitor, IntPtr dwData);
 

@@ -78,6 +78,42 @@ internal static class WindowQuery
     public static PixelRect? WindowRect(IntPtr hwnd)
         => Win32.GetWindowRect(hwnd, out var r) ? PixelRect.FromEdges(r.left, r.top, r.right, r.bottom) : null;
 
+    /// <summary>Where a minimised window will come back to (its restored rect, in screen pixels).</summary>
+    public static PixelRect? RestoredRect(IntPtr hwnd)
+    {
+        var placement = new Win32.WINDOWPLACEMENT { length = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Win32.WINDOWPLACEMENT>() };
+        if (!Win32.GetWindowPlacement(hwnd, ref placement)) return null;
+        var r = placement.rcNormalPosition;
+        var rect = PixelRect.FromEdges(r.left, r.top, r.right, r.bottom);
+
+        // The restored rect is in workspace coordinates — offset from the monitor's by any taskbar on its top / left.
+        var monitor = Win32.MonitorFromWindow(hwnd, Win32.MONITOR_DEFAULTTONEAREST);
+        var info = new Win32.MONITORINFOEX { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Win32.MONITORINFOEX>() };
+        if (Win32.GetMonitorInfoW(monitor, ref info))
+            rect = rect with { X = rect.X + info.rcWork.left - info.rcMonitor.left, Y = rect.Y + info.rcWork.top - info.rcMonitor.top };
+        return rect.Width > 0 && rect.Height > 0 ? rect : null;
+    }
+
+    public enum ShellSpot { Elsewhere, Taskbar, ShellPopup }
+
+    /// <summary>
+    /// What's under a screen point, as far as taskbar hover goes: a taskbar (any monitor's), one of the shell's
+    /// topmost popups (the button preview, jump lists), or anything else.
+    /// </summary>
+    public static ShellSpot ShellSpotAt(int x, int y)
+    {
+        var root = Win32.GetAncestor(Win32.WindowFromPoint(new Win32.POINT { x = x, y = y }), Win32.GA_ROOT);
+        if (root == IntPtr.Zero) return ShellSpot.Elsewhere;
+        if (ClassName(root) is "Shell_TrayWnd" or "Shell_SecondaryTrayWnd") return ShellSpot.Taskbar;
+
+        var tray = Win32.FindWindowW("Shell_TrayWnd", null);
+        if (tray == IntPtr.Zero) return ShellSpot.Elsewhere;
+        Win32.GetWindowThreadProcessId(tray, out var shell);
+        Win32.GetWindowThreadProcessId(root, out var pid);
+        var topmost = ((long)Win32.GetWindowLongPtrW(root, Win32.GWL_EXSTYLE) & Win32.WS_EX_TOPMOST) != 0;
+        return pid == shell && topmost && !IsDesktop(root) ? ShellSpot.ShellPopup : ShellSpot.Elsewhere;
+    }
+
     public static string Title(IntPtr hwnd)
     {
         var len = Win32.GetWindowTextLengthW(hwnd);
@@ -105,7 +141,7 @@ internal static class WindowQuery
     }
 
     /// <summary>The visible frame (no invisible resize borders) — what the user sees touching.</summary>
-    private static PixelRect VisibleBounds(IntPtr hwnd)
+    public static PixelRect VisibleBounds(IntPtr hwnd)
     {
         if (Win32.DwmGetWindowAttribute(hwnd, Win32.DWMWA_EXTENDED_FRAME_BOUNDS, out Win32.RECT r,
                 System.Runtime.InteropServices.Marshal.SizeOf<Win32.RECT>()) != 0
@@ -134,7 +170,7 @@ internal static class WindowQuery
         }
     }
 
-    private static string ClassName(IntPtr hwnd)
+    public static string ClassName(IntPtr hwnd)
     {
         var sb = new StringBuilder(256);
         var len = Win32.GetClassNameW(hwnd, sb, sb.Capacity);

@@ -63,6 +63,10 @@ FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on Po
   different desktops never minimise or restore together. A zoned window moved to another desktop moves
   to that desktop's zone flock. Hand-picked flocks are not split by desktop.
 - A flock's taskbar button follows it to the desktop most of its windows are on (toggle).
+- A flock's taskbar button draws its own preview: the flock's windows captured and laid out as they sit on
+  screen (pictures taken just before a minimise stand in for minimised ones), with Minimise / restore and
+  Dissolve buttons under it (toggle). Hovering the button outlines the flock's windows on screen (toggle) —
+  detected from the taskbar's preview request, since Windows has no "button hovered" event.
 - Later: a layout editor, keyboard moves between zones, and the zone flock moving as a unit (Phase 2).
 
 ### Later / maybe

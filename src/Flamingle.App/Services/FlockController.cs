@@ -51,6 +51,10 @@ internal sealed class FlockController
     /// <summary>A short message for the user (shown as a toast).</summary>
     public event Action<string>? Notice;
 
+    /// <summary>A flock is about to be minimised (its windows are still on screen) — the last chance to take
+    /// pictures of them for its taskbar preview.</summary>
+    public event Action<Flock>? Minimising;
+
     /// <summary>The last app window the user focused (never Flamingle's own, the taskbar or tray). Zero after
     /// the user clicks the bare desktop.</summary>
     public long LastFocus { get; private set; }
@@ -115,6 +119,7 @@ internal sealed class FlockController
                 bounds[h] = r;
         }
         _minimised[group.Id] = new MinimisedState(order, bounds);
+        Minimising?.Invoke(group);
 
         foreach (var h in order)
         {

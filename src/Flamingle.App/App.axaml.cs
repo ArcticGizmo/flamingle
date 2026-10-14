@@ -320,6 +320,24 @@ public partial class App : Application
             UpdateSettings(_settings with { TaskbarButtonFollowsDesktop = !_settings.TaskbarButtonFollowsDesktop });
         sub.Add(follow);
 
+        var previews = new NativeMenuItem("Flock's taskbar preview shows its windows (with buttons)")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.TaskbarPreviews,
+            IsEnabled = _settings.TaskbarButtons,
+        };
+        previews.Click += (_, _) => UpdateSettings(_settings with { TaskbarPreviews = !_settings.TaskbarPreviews });
+        sub.Add(previews);
+
+        var outline = new NativeMenuItem("Hovering a flock's taskbar button outlines its windows")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.TaskbarHoverOutline,
+            IsEnabled = _settings.TaskbarButtons && _settings.TaskbarPreviews,
+        };
+        outline.Click += (_, _) => UpdateSettings(_settings with { TaskbarHoverOutline = !_settings.TaskbarHoverOutline });
+        sub.Add(outline);
+
         return new NativeMenuItem("Experiments") { Menu = sub };
     }
 

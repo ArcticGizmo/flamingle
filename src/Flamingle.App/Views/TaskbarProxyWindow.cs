@@ -11,6 +11,7 @@ namespace Flamingle.App.Views;
 /// under its own AppUserModelID (so it gets its own button and icon rather than stacking under Flamingle's).
 /// Clicking the button "restores" it — which this turns straight into <see cref="Clicked"/> and drops back
 /// to minimised. Closing it from the taskbar raises <see cref="CloseRequested"/> instead of closing.
+/// With custom previews on, it also relays the taskbar's preview requests and thumbnail-button clicks.
 /// </summary>
 internal sealed class TaskbarProxyWindow : Window
 {
@@ -31,10 +32,41 @@ internal sealed class TaskbarProxyWindow : Window
         Height = 1;
         WindowStartupLocation = WindowStartupLocation.Manual;
         Position = new PixelPoint(-20000, -20000);
+
+        Win32Properties.AddWndProcHookCallback(this, WndProc);
     }
 
     /// <summary>The native window handle (zero until it's been shown).</summary>
     public IntPtr Handle => TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+
+    /// <summary>The taskbar wants a preview (custom previews on): (max width, max height) in pixels.</summary>
+    public event Action<int, int>? ThumbnailRequested;
+
+    /// <summary>The taskbar button now exists — thumbnail buttons can be added.</summary>
+    public event Action? ButtonCreated;
+
+    /// <summary>A button under the preview was clicked (its id).</summary>
+    public event Action<uint>? ThumbButtonClicked;
+
+    private IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == TaskbarThumbnails.WM_DWMSENDICONICTHUMBNAIL)
+        {
+            var l = (long)lParam;
+            ThumbnailRequested?.Invoke((int)((l >> 16) & 0xFFFF), (int)(l & 0xFFFF));
+            handled = true;
+        }
+        else if (msg == TaskbarThumbnails.WM_TASKBARBUTTONCREATED)
+        {
+            ButtonCreated?.Invoke();
+        }
+        else if (msg == TaskbarThumbnails.WM_COMMAND && (((long)wParam >> 16) & 0xFFFF) == TaskbarThumbnails.THBN_CLICKED)
+        {
+            ThumbButtonClicked?.Invoke((uint)((long)wParam & 0xFFFF));
+            handled = true;
+        }
+        return IntPtr.Zero;
+    }
 
     /// <summary>The taskbar button was clicked (or the proxy was picked in Alt+Tab).</summary>
     public event Action? Clicked;
