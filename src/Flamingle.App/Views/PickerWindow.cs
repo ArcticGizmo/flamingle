@@ -10,7 +10,7 @@ namespace Flamingle.App.Views;
 
 /// <summary>
 /// "New flock": tick the windows that belong together and name the group. Opened from the new-flock
-/// hotkey with the snap-group guess pre-checked, or from the tray with nothing checked. Built in code —
+/// hotkey with the snap-group guess pre-checked, or from settings' "New flock…". Built in code —
 /// the layout is still in flux. Enter creates, Esc cancels.
 /// </summary>
 internal sealed class PickerWindow : Window

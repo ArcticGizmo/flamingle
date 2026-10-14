@@ -124,8 +124,8 @@ public partial class App : Application
             ToastWindow.Show($"Couldn't register {string.Join(", ", refused)} — another app already uses them.");
     }
 
-    /// <summary>The tray holds only the essentials; everything else lives in the settings window. Clicking the
-    /// icon opens the new-flock picker.</summary>
+    /// <summary>The tray holds only the essentials; everything else lives in the settings window, which clicking
+    /// the icon opens.</summary>
     private void SetupTray(IClassicDesktopStyleApplicationLifetime desktop)
     {
         var menu = new NativeMenu();
@@ -150,7 +150,7 @@ public partial class App : Application
             Menu = menu,
             IsVisible = true,
         };
-        _tray.Clicked += (_, _) => ShowPicker();
+        _tray.Clicked += (_, _) => ShowSettings();
         TrayIcon.SetIcons(this, [_tray]);
         UpdateTrayTooltip();
     }
@@ -226,7 +226,7 @@ public partial class App : Application
             return;
         }
 
-        // Seed the snap-group guess from the window the user was in before they hit the hotkey / tray.
+        // Seed the snap-group guess from the window the user was in before they hit the hotkey (or opened settings).
         var seed = _controller.LastFocus;
         var windows = WindowQuery.Candidates();
         var guess = seed != 0 ? SnapGroupDetector.Detect(seed, windows) : [];

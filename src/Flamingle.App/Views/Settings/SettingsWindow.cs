@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Flamingle.App.Native;
 using Flamingle.Core;
 using Flamingle.Core.Geometry;
@@ -62,6 +63,7 @@ internal sealed class SettingsWindow : Window
         var nav = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
         AddPage(nav, "flocks", "Flocks", BuildFlocks);
         AddPage(nav, "zones", "Zones", BuildZones);
+        AddPage(nav, "snapping", "Windows snapping", BuildWindowsSnapping);
         AddPage(nav, "taskbar", "Taskbar", BuildTaskbar);
         AddPage(nav, "behaviour", "Behaviour", BuildBehaviour);
         AddPage(nav, "shortcuts", "Shortcuts", BuildShortcuts);
@@ -275,15 +277,52 @@ internal sealed class SettingsWindow : Window
         page.Children.Add(SectionTitle("Layouts"));
         foreach (var monitor in Monitors.All())
             page.Children.Add(MonitorLayouts(monitor));
+    }
 
-        page.Children.Add(SectionTitle("Windows' own snapping"));
+    // ---- Windows snapping ----
+
+    private void BuildWindowsSnapping(StackPanel page)
+    {
+        page.Children.Add(PageTitle("Windows snapping"));
         page.Children.Add(BodyText(
             "Windows 11's snap layouts pop up where Flamingle's zones and layout tabs live. These are your Windows " +
-            "settings (Settings → System → Multitasking), not Flamingle's."));
+            "settings (Settings → System → Multitasking), not Flamingle's. Windows applies a change made here once " +
+            "Explorer restarts (or the next time you sign in)."));
         page.Children.Add(WindowsSnapRow("Snap layouts when dragging to the top of the screen",
             "The bar that drops down from the top edge while you drag a window.", WindowsSnapSettings.SnapBar));
         page.Children.Add(WindowsSnapRow("Snap layouts on the maximise button",
             "The grid that appears when you hover a window's maximise button.", WindowsSnapSettings.MaximiseFlyout));
+        page.Children.Add(Row("Restart Explorer to apply",
+            "The taskbar blinks out for a moment and open File Explorer windows close.",
+            RestartExplorerButton()));
+    }
+
+    /// <summary>Restarting Explorer closes the user's folder windows, so it takes a second click to confirm.</summary>
+    private Control RestartExplorerButton()
+    {
+        var armed = false;
+        Button? button = null;
+        button = FlatButton("Restart Explorer", async () =>
+        {
+            if (!armed)
+            {
+                armed = true;
+                button!.Content = "Click again to restart";
+                DispatcherTimer.RunOnce(() =>
+                {
+                    if (!button.IsEnabled) return;   // already restarting
+                    armed = false;
+                    button.Content = "Restart Explorer";
+                }, TimeSpan.FromSeconds(4));
+                return;
+            }
+
+            button!.IsEnabled = false;
+            button.Content = "Restarting…";
+            var ok = await WindowsSnapSettings.RestartExplorer();
+            button.Content = ok ? "Restarted" : "Couldn't restart — sign out and in instead";
+        });
+        return button;
     }
 
     private Control MonitorLayouts(MonitorInfo monitor)
