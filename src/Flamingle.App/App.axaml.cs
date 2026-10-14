@@ -320,6 +320,19 @@ public partial class App : Application
             UpdateSettings(_settings with { TaskbarButtonFollowsDesktop = !_settings.TaskbarButtonFollowsDesktop });
         sub.Add(follow);
 
+        var iconStyle = new NativeMenu();
+        foreach (var (style, label) in new[] { ("Flamingle", "Flamingle icon, numbered by monitor"), ("Apps", "Its apps' icons") })
+        {
+            var item = new NativeMenuItem(label)
+            {
+                ToggleType = MenuItemToggleType.Radio,
+                IsChecked = (style == "Apps") == _settings.TaskbarIconShowsApps,
+            };
+            item.Click += (_, _) => UpdateSettings(_settings with { TaskbarIconStyle = style });
+            iconStyle.Add(item);
+        }
+        sub.Add(new NativeMenuItem("Flock's taskbar icon") { Menu = iconStyle, IsEnabled = _settings.TaskbarButtons });
+
         var previews = new NativeMenuItem("Flock's taskbar preview shows its windows (with buttons)")
         {
             ToggleType = MenuItemToggleType.CheckBox,

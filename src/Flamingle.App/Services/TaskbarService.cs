@@ -2,17 +2,20 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using Flamingle.App.Native;
 using Flamingle.App.Views;
+using Flamingle.Core.Geometry;
 using Flamingle.Core.Grouping;
 using Flamingle.Core.Settings;
+using Flamingle.Core.Taskbar;
 
 namespace Flamingle.App.Services;
 
 /// <summary>
-/// Puts each flock on the taskbar as its own button — titled with the flock's name, its icon a mosaic of
-/// the member apps' icons. Clicking the button minimises / restores the whole flock (same rule as the
+/// Puts each flock on the taskbar as its own button — titled with the flock's name, its icon the Flamingle icon
+/// numbered with the flock's monitor (or a mosaic of the member apps' icons). Clicking the button minimises / restores the whole flock (same rule as the
 /// toggle hotkey); "Close window" on it dissolves the flock (the windows themselves stay open). With
 /// <see cref="AppSettings.TaskbarPreviews"/> the button's preview is drawn by <see cref="FlockPreviewService"/>
 /// and has Minimise / restore and Dissolve buttons under it.
@@ -42,7 +45,8 @@ internal sealed class TaskbarService : IDisposable
 
     private readonly FlockPreviewService _previews;
 
-    // Desktop switches cloak / uncloak a burst of windows — check once the burst has passed.
+    // Desktop switches cloak / uncloak a burst of windows — check once the burst has passed. (The same check
+    // re-numbers the icons after windows move between monitors.)
     private static readonly TimeSpan DesktopCheckDelay = TimeSpan.FromMilliseconds(250);
 
     private readonly DispatcherTimer _desktopCheck;
@@ -65,9 +69,11 @@ internal sealed class TaskbarService : IDisposable
         {
             _desktopCheck.Stop();
             FollowDesktops();
+            RefreshIcons();
         };
         hooks.ForegroundChanged += _ => ScheduleDesktopCheck();
         hooks.CloakChanged += _ => ScheduleDesktopCheck();
+        hooks.MoveSizeEnded += _ => ScheduleDesktopCheck();
     }
 
     /// <summary>Bring the buttons in line with the current flocks (and the on/off setting).</summary>
@@ -85,6 +91,7 @@ internal sealed class TaskbarService : IDisposable
         }
 
         var previews = _settings().TaskbarPreviews;
+        var monitors = Monitors.All();
         foreach (var group in wanted.Values)
         {
             if (!_proxies.TryGetValue(group.Id, out var proxy))
@@ -121,16 +128,90 @@ internal sealed class TaskbarService : IDisposable
                 TaskbarThumbnails.SetTooltip(hwnd, tooltip);
             }
 
-            // Rebuilding the icon means asking every member app for its icon — only when membership changes.
-            var key = string.Join(",", group.Members.Select(m => m.Handle));
-            if (key != proxy.IconKey)
-            {
-                proxy.IconKey = key;
-                proxy.Window.Icon = Mosaic(group);
-            }
+            UpdateIcon(proxy, group, monitors);
         }
 
         FollowDesktops();
+    }
+
+    /// <summary>
+    /// The button's icon: the Flamingle icon numbered with the flock's monitor, or a mosaic of its apps' icons.
+    /// Only rebuilt when what it shows changes (the mosaic asks every member app for its icon).
+    /// </summary>
+    private void UpdateIcon(Proxy proxy, Flock group, IReadOnlyList<MonitorInfo> monitors)
+    {
+        string key;
+        string? badge = null;
+        if (_settings().TaskbarIconShowsApps)
+        {
+            key = "apps:" + string.Join(",", group.Members.Select(m => m.Handle));
+        }
+        else
+        {
+            if (monitors.Count > 1)
+            {
+                var memberMonitors = group.Members
+                    .Select(m => Win32.MonitorFromWindow((IntPtr)m.Handle, Win32.MONITOR_DEFAULTTONEAREST))
+                    .Select(h => monitors.FirstOrDefault(m => m.Handle == (long)h)?.DeviceName)
+                    .ToList();
+                badge = FlockBadge.Number(FlockBadge.MonitorOf(group.ZoneMonitor, memberMonitors));
+            }
+            key = "flamingle:" + badge;
+        }
+
+        if (key == proxy.IconKey) return;
+        proxy.IconKey = key;
+        proxy.Window.Icon = _settings().TaskbarIconShowsApps ? Mosaic(group) : Badged(badge);
+    }
+
+    /// <summary>Re-check every button's icon — after windows move (they may have changed monitor).</summary>
+    private void RefreshIcons()
+    {
+        var monitors = Monitors.All();
+        foreach (var (id, proxy) in _proxies)
+        {
+            if (_registry.Find(id) is { } group) UpdateIcon(proxy, group, monitors);
+        }
+    }
+
+    private static Bitmap? _product;
+
+    /// <summary>The Flamingle icon, with <paramref name="badge"/> in a disc in the bottom-right corner.</summary>
+    private static WindowIcon Badged(string? badge)
+    {
+        _product ??= new Bitmap(AssetLoader.Open(new Uri("avares://flamingle/Assets/flamingle.png")));
+        if (badge is null) return new WindowIcon(_product);
+
+        const int disc = 36;
+        var canvas = new Canvas { Width = IconSize, Height = IconSize };
+        canvas.Children.Add(new Image { Source = _product, Width = IconSize, Height = IconSize });
+        var number = new Border
+        {
+            Width = disc,
+            Height = disc,
+            CornerRadius = new CornerRadius(disc / 2.0),
+            Background = Palette.ToastBg,
+            BorderBrush = Palette.AccentBrush,
+            BorderThickness = new Thickness(2.5),
+            Child = new TextBlock
+            {
+                Text = badge,
+                Foreground = Brushes.White,
+                FontSize = badge.Length > 1 ? 19 : 25,
+                FontWeight = FontWeight.Bold,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            },
+        };
+        Canvas.SetLeft(number, IconSize - disc);
+        Canvas.SetTop(number, IconSize - disc);
+        canvas.Children.Add(number);
+
+        canvas.Measure(new Size(IconSize, IconSize));
+        canvas.Arrange(new Rect(0, 0, IconSize, IconSize));
+        var bitmap = new RenderTargetBitmap(new PixelSize(IconSize, IconSize), new Vector(96, 96));
+        bitmap.Render(canvas);
+        return new WindowIcon(bitmap);
     }
 
     private static string Tooltip(Flock group)
@@ -171,7 +252,7 @@ internal sealed class TaskbarService : IDisposable
 
     private void ScheduleDesktopCheck()
     {
-        if (_proxies.Count == 0 || !_settings().TaskbarButtonFollowsDesktop) return;
+        if (_proxies.Count == 0) return;
         _desktopCheck.Stop();
         _desktopCheck.Start();
     }

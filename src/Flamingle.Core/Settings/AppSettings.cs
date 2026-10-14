@@ -81,6 +81,14 @@ public sealed record AppSettings
     /// (otherwise it stays on the desktop it was created on).</summary>
     public bool TaskbarButtonFollowsDesktop { get; init; } = true;
 
+    /// <summary>Experimental: what a flock's taskbar button looks like — <c>"Flamingle"</c> (the Flamingle icon,
+    /// numbered with the monitor the flock is on when there's more than one) or <c>"Apps"</c> (a mosaic of its
+    /// apps' icons).</summary>
+    public string TaskbarIconStyle { get; init; } = "Flamingle";
+
+    [JsonIgnore]
+    public bool TaskbarIconShowsApps => string.Equals(TaskbarIconStyle, "Apps", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Experimental: a flock's taskbar button shows its own preview — the flock's windows laid out as they
     /// are on screen (pictures taken before a minimise stand in for minimised ones) — with Minimise / restore and
     /// Dissolve buttons under it. Off: Windows' default preview of the (empty) stand-in window.</summary>
