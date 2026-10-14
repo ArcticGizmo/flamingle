@@ -18,6 +18,8 @@ internal static class Win32
     public const uint SWP_NOOWNERZORDER = 0x0200;
     public const uint SWP_ASYNCWINDOWPOS = 0x4000;
 
+    public static readonly IntPtr HWND_TOPMOST = new(-1);
+
     // Window styles
     public const int GWL_EXSTYLE = -20;
     public const long WS_EX_TOOLWINDOW = 0x00000080;

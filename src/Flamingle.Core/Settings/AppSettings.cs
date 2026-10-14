@@ -14,6 +14,10 @@ public sealed record AppSettings
     /// <summary>Minimise / restore the flock holding the focused window (else the last-used flock).</summary>
     public string ToggleHotkey { get; init; } = "Alt+Shift+M";
 
+    /// <summary>Opens (or closes) the layout tab's panel on the monitor under the cursor — as if the tab was
+    /// clicked.</summary>
+    public string LayoutMenuHotkey { get; init; } = "Alt+Shift+E";
+
     /// <summary>Modifiers for the per-slot hotkeys: <c>{modifiers}+1</c> … <c>+9</c> toggle flock 1–9.
     /// Empty disables them.</summary>
     public string SlotHotkeyModifiers { get; init; } = "Alt+Shift";

@@ -94,6 +94,7 @@ public partial class App : Application
             _hotkeys = new HotkeyService();
             _hotkeys.NewFlockRequested += ShowPicker;
             _hotkeys.ToggleRequested += () => _controller.ToggleFocused();
+            _hotkeys.LayoutMenuRequested += () => _containers.ToggleMenuAtCursor();
             _hotkeys.SlotRequested += slot => _controller.ToggleSlot(slot);
             var refused = _hotkeys.Apply(_settings);
             if (refused.Count > 0)

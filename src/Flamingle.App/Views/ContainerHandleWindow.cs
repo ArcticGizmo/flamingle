@@ -128,6 +128,24 @@ internal sealed class ContainerHandleWindow : Window
 
     public void Collapse() => SetExpanded(false);
 
+    /// <summary>Open the panel, as if the tab was clicked (the layout-menu hotkey).</summary>
+    public void Expand() => SetExpanded(true);
+
+    /// <summary>
+    /// Put the open panel back on top of everything. Avalonia only re-applies <c>Topmost</c> when the value
+    /// changes, so once something else has pushed in front (or a z-order call knocked the window out of the
+    /// topmost band) setting it again does nothing — this goes to Win32 directly. Called on every hover tick
+    /// while the panel is open.
+    /// </summary>
+    public void KeepOnTop()
+    {
+        if (!IsExpanded) return;
+        var hwnd = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (hwnd != IntPtr.Zero)
+            Win32.SetWindowPos(hwnd, Win32.HWND_TOPMOST, 0, 0, 0, 0,
+                Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE | Win32.SWP_NOOWNERZORDER);
+    }
+
     /// <summary>True while the tab is lifted above everything because the cursor lingered near it.</summary>
     public bool IsPeeking { get; private set; }
 
@@ -273,6 +291,7 @@ internal sealed class ContainerHandleWindow : Window
         // The open panel floats over everything (even the layout's own windows); collapsed, the tab goes back
         // to normal stacking so other apps can cover it — the service re-places it after this.
         Topmost = expanded || IsPeeking;
+        KeepOnTop();
         ExpandedChanged?.Invoke();
     }
 

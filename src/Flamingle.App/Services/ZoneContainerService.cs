@@ -359,6 +359,29 @@ internal sealed class ZoneContainerService : IDisposable
     }
 
     /// <summary>
+    /// The layout-menu hotkey: if any layout's panel is open, close it; otherwise open the panel of the layout on
+    /// the monitor under the cursor, as if its tab was clicked.
+    /// </summary>
+    public void ToggleMenuAtCursor()
+    {
+        var open = _handles.Values.Where(h => h.Chip.IsExpanded).ToList();
+        if (open.Count > 0)
+        {
+            foreach (var h in open) h.Chip.Collapse();
+            return;
+        }
+
+        if (!Win32.GetCursorPos(out var cursor) || MonitorAt((cursor.x, cursor.y)) is not { } monitor) return;
+        SyncHandles();
+        if (ContainerOn(monitor.DeviceName) is not { } c)
+            Notice?.Invoke($"No zone layout on {monitor.ShortName} — Shift-drag a window into a zone to start one.");
+        else if (!_handles.TryGetValue(c, out var handles))
+            Notice?.Invoke($"The layout on {monitor.ShortName} has no windows on screen.");
+        else
+            handles.Chip.Expand();
+    }
+
+    /// <summary>
     /// The tab normally sits just above its layout, so the layout's own windows (or anything brought in
     /// front) can bury it. If the cursor lingers near a tab, lift it above everything; once the cursor has
     /// been away for a moment (and the panel's closed), let it drop back.
@@ -370,6 +393,7 @@ internal sealed class ZoneContainerService : IDisposable
 
         foreach (var (c, h) in _handles.ToList())
         {
+            h.Chip.KeepOnTop();
             var size = h.Chip.PixelSizeAt(h.Scale);
             var reach = (int)(HoverReach * h.Scale);
             var pos = h.Chip.Position;
