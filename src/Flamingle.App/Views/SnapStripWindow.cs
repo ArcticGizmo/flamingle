@@ -109,14 +109,16 @@ internal sealed class SnapStripWindow : Window
         }
     }
 
-    /// <summary>The layout and zone under a screen point (physical px), if any.</summary>
+    /// <summary>The layout and zone under a screen point (physical px), if any. The thin gap between two zones of a
+    /// layout counts as the nearer one (so sliding across a layout doesn't drop the pick); the space between
+    /// layouts, and around the strip, is nothing.</summary>
     public (string LayoutId, int Zone)? HitTest(int x, int y)
     {
         var local = new Point((x - Position.X) / _monitor.Scale, (y - Position.Y) / _monitor.Scale);
         foreach (var (layoutId, zone, tile) in _tiles)
         {
             if (tile.TranslatePoint(default, this) is not { } origin) continue;
-            if (new Rect(origin, tile.Bounds.Size).Contains(local)) return (layoutId, zone);
+            if (new Rect(origin, tile.Bounds.Size).Inflate(Gap / 2).Contains(local)) return (layoutId, zone);
         }
         return null;
     }

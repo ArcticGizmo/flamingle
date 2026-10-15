@@ -382,7 +382,10 @@ internal sealed class ZoneDragService : IDisposable
 
         if (_strip.HitTest(cursor.x, cursor.y) is not { } hit)
         {
-            // On the strip but between tiles: keep the last pick (so a drop in a gap still lands), just no new one.
+            // Near the strip but off its tiles — between layouts, past its edge, up at the very top of the screen:
+            // nothing is picked, so a drop here is an ordinary drop (Windows' top-edge maximise included). The strip
+            // stays down to come back to.
+            ClearStripPick(drag);
             return true;
         }
 
@@ -420,6 +423,18 @@ internal sealed class ZoneDragService : IDisposable
                     Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
         }
         _stripOverlay.Highlight(selection.ToList());
+    }
+
+    /// <summary>Forget the strip's pick: no tile lit, no full-size preview.</summary>
+    private void ClearStripPick(Drag drag)
+    {
+        if (drag.Strip is null && _stripOverlay is null) return;
+        drag.Strip = null;
+        drag.StripAnchor = -1;
+        _strip?.Highlight(null, []);
+        _stripOverlay?.Close();
+        _stripOverlay = null;
+        _stripOverlayLayout = null;
     }
 
     private void HideStrip(Drag? drag)
