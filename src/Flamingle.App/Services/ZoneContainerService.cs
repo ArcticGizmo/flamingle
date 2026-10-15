@@ -121,8 +121,11 @@ internal sealed class ZoneContainerService : IDisposable
 
     public event Action<string>? Notice;
 
-    /// <summary>The gaps toggle in a layout's panel was flipped (the setting is global — the app owns it).</summary>
-    public event Action<bool>? GapsToggled;
+    /// <summary>A panel's settings button: edit mode has ended; open the settings window.</summary>
+    public event Action? SettingsRequested;
+
+    /// <summary>A panel picked a saved flock to load onto its layout (device name, saved flock id).</summary>
+    public event Action<string, Guid>? FlockLoadRequested;
 
     /// <summary>What a layout's panel shows in its Flock section, by monitor device name. Flocks are the app's
     /// business — it supplies them.</summary>
@@ -134,8 +137,6 @@ internal sealed class ZoneContainerService : IDisposable
     /// <summary>A panel saved its layout's flock (device name, name to save it under).</summary>
     public event Action<string, string>? FlockSaveRequested;
 
-    /// <summary>A panel deleted a saved flock.</summary>
-    public event Action<Guid>? SavedFlockDeleteRequested;
 
     /// <summary>Flocks or saved flocks changed: bring any open panel up to date.</summary>
     public void RefreshPanels()
@@ -425,7 +426,6 @@ internal sealed class ZoneContainerService : IDisposable
             ? $"{c.Layout.Name} · no windows yet"
             : $"{c.Layout.Name} · {c.Slots.Count} window{(c.Slots.Count == 1 ? "" : "s")}");
         h.Panel.SetCurrentLayout(c.LayoutId);
-        h.Panel.SetGaps(_settings().ZoneGaps);
         h.Panel.SetAdjusting(_adjusting.Contains(c));
         h.Panel.SetHistory(_history.CanUndo, _history.CanRedo);
         SetPanelFlocks(c, h.Panel);
@@ -711,10 +711,9 @@ internal sealed class ZoneContainerService : IDisposable
             if (MonitorOf(c) is { } m) LayoutPicked?.Invoke(m, id);
         };
         panel.ActionChosen += action => OnPanelAction(c, action);
-        panel.GapsToggled += on => GapsToggled?.Invoke(on);
         panel.FlockRenamed += name => FlockRenameRequested?.Invoke(c.DeviceName, name);
         panel.FlockSaved += name => FlockSaveRequested?.Invoke(c.DeviceName, name);
-        panel.SavedFlockDeleted += id => SavedFlockDeleteRequested?.Invoke(id);
+        panel.FlockLoaded += id => FlockLoadRequested?.Invoke(c.DeviceName, id);
         panel.TypingChanged += typing =>
         {
             if (_editing != c) return;
@@ -759,6 +758,9 @@ internal sealed class ZoneContainerService : IDisposable
                 break;
             case PanelAction.Redo:
                 Redo();
+                break;
+            case PanelAction.OpenSettings:
+                SettingsRequested?.Invoke();
                 break;
         }
     }

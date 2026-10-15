@@ -8,7 +8,19 @@ namespace Flamingle.Core.Saved;
 /// it holds no window handles, so it survives the apps closing and a reboot. It's a snapshot — it only changes
 /// when the flock is saved again.
 /// </summary>
-public sealed record SavedFlock(Guid Id, string Name, DateTimeOffset SavedAt, List<SavedWindow> Windows);
+public sealed record SavedFlock(Guid Id, string Name, DateTimeOffset SavedAt, List<SavedWindow> Windows)
+{
+    /// <summary>The zone layout most of its zoned windows were in (ties go to the topmost window's), or null if none
+    /// was zoned.</summary>
+    public string? MainZoneLayout() => Windows
+        .OrderBy(w => w.ZIndex)
+        .Select(w => w.Zone?.LayoutId)
+        .OfType<string>()
+        .GroupBy(id => id)
+        .OrderByDescending(g => g.Count())
+        .Select(g => g.Key)
+        .FirstOrDefault();
+}
 
 /// <summary>One window of a saved flock.</summary>
 /// <param name="ProcessName">e.g. <c>Code</c> — for display.</param>

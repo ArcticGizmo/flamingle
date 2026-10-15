@@ -71,6 +71,20 @@ public sealed class SavedFlockTests : IDisposable
         Assert.Equal(flock.Windows[1], loaded.Windows[1]);
     }
 
+    [Fact]
+    public void Main_zone_layout_is_the_most_common_then_the_topmost()
+    {
+        Assert.Null(Flock("Loose", Window("a")).MainZoneLayout());
+        Assert.Equal("grid-2x2", Flock("Mixed",
+            Window("a", 0, new SavedZone("columns-2", [0])),
+            Window("b", 1, new SavedZone("grid-2x2", [0])),
+            Window("c", 2, new SavedZone("grid-2x2", [1])),
+            Window("d", 3)).MainZoneLayout());
+        Assert.Equal("columns-3", Flock("Tie",
+            Window("a", 1, new SavedZone("columns-2", [0])),
+            Window("b", 0, new SavedZone("columns-3", [0]))).MainZoneLayout());
+    }
+
     [Theory]
     [InlineData(@"""C:\Program Files\App\app.exe"" --a b", "--a b")]
     [InlineData(@"""C:\Program Files\App\app.exe""", "")]

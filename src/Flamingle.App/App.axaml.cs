@@ -79,7 +79,7 @@ public partial class App : Application
             _containers.Swapped += (a, b) =>
                 _registry.SwapZoneFlocks(a.DeviceName, b.DeviceName, g => FlockController.ZoneFlockName(g.ZoneMonitor!, g.ZoneDesktop));
             _containers.LayoutPicked += ApplyLayout;
-            _containers.GapsToggled += SetGaps;
+            _containers.SettingsRequested += () => ShowSettings("zones");
             _containers.MinimiseRequested += device =>
             {
                 if (!_controller.MinimiseZoneFlock(device))
@@ -94,7 +94,7 @@ public partial class App : Application
             {
                 if (_controller.CurrentZoneFlock(device) is { } group) _saved?.Save(group, name);
             };
-            _containers.SavedFlockDeleteRequested += id => _saved?.Delete(id);
+            _containers.FlockLoadRequested += LoadSavedFlock;
             _containers.Start();
 
             _zones = new ZoneDragService(_hooks, () => _settings, _containers);
@@ -188,11 +188,15 @@ public partial class App : Application
         };
     }
 
-    private void ShowSettings()
+    private void ShowSettings() => ShowSettings(null);
+
+    /// <summary>Open (or bring forward) the settings window, on <paramref name="page"/> if given.</summary>
+    private void ShowSettings(string? page)
     {
         if (_controller is null) return;
         if (_settingsWindow is not null)
         {
+            if (page is not null) _settingsWindow.Select(page);
             _settingsWindow.Activate();
             return;
         }
@@ -219,13 +223,29 @@ public partial class App : Application
             },
             OpenDataFolder = OpenDataFolder,
             Version = Version,
-        });
+        }, page ?? "flocks");
         window.Closed += (_, _) => { if (ReferenceEquals(_settingsWindow, window)) _settingsWindow = null; };
         _settingsWindow = window;
         window.Show();
     }
 
-    /// <summary>Gaps on/off (from settings or a layout tab): every layout re-flows straight away.</summary>
+    /// <summary>
+    /// A saved flock picked in a layout's panel. For now this only switches the layout to the one the flock was saved
+    /// in — finding or starting its apps and placing their windows is the next step of save and relaunch.
+    /// </summary>
+    private void LoadSavedFlock(string deviceName, Guid id)
+    {
+        if (_saved?.All.FirstOrDefault(f => f.Id == id) is not { } flock) return;
+        var layoutId = flock.MainZoneLayout();
+        if (layoutId is not null && Monitors.All().FirstOrDefault(m => m.DeviceName == deviceName) is { } monitor)
+            ApplyLayout(monitor, layoutId);
+
+        ToastWindow.Show(layoutId is null
+            ? $"\"{flock.Name}\" wasn't saved from a zone layout. Starting its apps isn't built yet."
+            : $"Switched to \"{flock.Name}\"'s layout ({ZoneLayout.ById(layoutId).Name}). Starting its apps isn't built yet.");
+    }
+
+    /// <summary>Gaps on/off (from settings): every layout re-flows straight away.</summary>
     private void SetGaps(bool on)
     {
         if (_settings.ZoneGaps == on) return;
