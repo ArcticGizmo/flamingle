@@ -19,6 +19,7 @@ internal sealed class EditFrameWindow : Window
 {
     private const int DragThreshold = 4;
 
+    private readonly ZoneLayer _zones = new() { IsHitTestVisible = false };
     private Win32.POINT _pressAt;
     private bool _pressed;
     private bool _dragging;
@@ -39,6 +40,7 @@ internal sealed class EditFrameWindow : Window
         {
             Children =
             {
+                _zones,
                 new Rectangle
                 {
                     Stroke = Palette.AccentBrush, StrokeThickness = 3, RadiusX = 8, RadiusY = 8,
@@ -71,6 +73,65 @@ internal sealed class EditFrameWindow : Window
 
     /// <summary>Cover <paramref name="rect"/> (physical px) on a monitor at <paramref name="scale"/>.</summary>
     public void Place(PixelRect rect, double scale) => OverlayPlacement.Place(this, rect, scale);
+
+    /// <summary>Outline the layout's zones (physical px, within <paramref name="frame"/>), numbered — so a layout
+    /// can be seen and set up before any window is in it.</summary>
+    public void SetZones(IReadOnlyList<PixelRect> zones, PixelRect frame)
+    {
+        if (frame.Width <= 0 || frame.Height <= 0) return;
+        var fractions = zones.Select(z => new Rect(
+            (z.X - frame.X) / (double)frame.Width, (z.Y - frame.Y) / (double)frame.Height,
+            z.Width / (double)frame.Width, z.Height / (double)frame.Height)).ToList();
+        if (fractions.SequenceEqual(_zones.Fractions)) return;
+
+        if (_zones.Children.Count != fractions.Count)
+        {
+            _zones.Children.Clear();
+            for (var i = 0; i < fractions.Count; i++)
+            {
+                _zones.Children.Add(new Border
+                {
+                    BorderBrush = new SolidColorBrush(Palette.Accent, 0.55),
+                    BorderThickness = new Thickness(1.5),
+                    CornerRadius = new CornerRadius(6),
+                    Background = new SolidColorBrush(Palette.Accent, 0.06),
+                    Child = new TextBlock
+                    {
+                        Text = (i + 1).ToString(), FontSize = 40, FontWeight = FontWeight.SemiBold,
+                        Foreground = new SolidColorBrush(Palette.Accent, 0.45),
+                        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                    },
+                });
+            }
+        }
+        _zones.Fractions.Clear();
+        _zones.Fractions.AddRange(fractions);
+        _zones.InvalidateArrange();
+    }
+
+    /// <summary>Lays its children out at fractions of its own size, so the zones follow the frame whatever the
+    /// monitor's DPI.</summary>
+    private sealed class ZoneLayer : Panel
+    {
+        public List<Rect> Fractions { get; } = [];
+
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            foreach (var child in Children) child.Measure(availableSize);
+            return default;
+        }
+
+        protected override Size ArrangeOverride(Size finalSize)
+        {
+            for (var i = 0; i < Children.Count && i < Fractions.Count; i++)
+            {
+                var f = Fractions[i];
+                Children[i].Arrange(new Rect(f.X * finalSize.Width, f.Y * finalSize.Height,
+                    f.Width * finalSize.Width, f.Height * finalSize.Height));
+            }
+            return finalSize;
+        }
+    }
 
     protected override void OnOpened(EventArgs e)
     {

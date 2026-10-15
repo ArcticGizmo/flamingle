@@ -537,8 +537,9 @@ internal sealed class SettingsWindow : Window
         page.Children.Add(Row("Minimise / restore", "The flock holding the focused window, else the last one used.",
             ShortcutEditor(s.ToggleHotkey, v => Update(x => x with { ToggleHotkey = v }))));
         page.Children.Add(Row("Edit layout",
-            "Puts the layout under the cursor into edit mode: drag anywhere to move it, adjust its splits, pick a " +
-            "layout. Ctrl+Z / Ctrl+Y undo and redo layout changes. Press again (or Esc) to finish.",
+            "Puts the layout on the monitor under the cursor into edit mode — even with no windows in it yet: drag " +
+            "anywhere to move it, adjust its splits, pick a layout. Ctrl+Z / Ctrl+Y undo and redo layout changes. " +
+            "Press again (or Esc) to finish.",
             ShortcutEditor(s.LayoutMenuHotkey, v => Update(x => x with { LayoutMenuHotkey = v }))));
 
         page.Children.Add(Row("Flock slots", "These keys plus 1–9 minimise / restore flock 1–9. None turns them off.",

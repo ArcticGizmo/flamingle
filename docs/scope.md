@@ -64,7 +64,9 @@ FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on Po
 - Dragging a window to the top of a monitor drops down a *snap strip* of layouts (toggle) — Flamingle's take on
   Windows' snap bar, which should be turned off alongside it. Dropping on a zone of another layout switches the
   monitor to that layout.
-- Layouts show nothing on screen. The edit-layout shortcut (Alt+Shift+E) puts the layout under the cursor into
+- Layouts show nothing on screen. The edit-layout shortcut (Alt+Shift+E) works on any monitor, with or without
+  windows in its layout (so a layout can be set up before it's used — the frame draws its numbered zones), and puts
+  the layout under the cursor into
   *edit mode*: an outline you drag from anywhere to move it (dropping it on a monitor that has a layout swaps the
   two), its split strips, and its panel. The old always-visible pull-tab is gone. The panel also names and saves the
   layout's zone flock (a zone flock the user renames keeps that name when it moves monitor or desktop) and lists

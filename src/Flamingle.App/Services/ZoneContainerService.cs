@@ -332,7 +332,6 @@ internal sealed class ZoneContainerService : IDisposable
             placed++;
         }
 
-        if (c.Slots.Count == 0) _containers.Remove(c);
         Save();
         SyncHandles();
 
@@ -355,11 +354,11 @@ internal sealed class ZoneContainerService : IDisposable
         foreach (var c in _containers.ToList())
         {
             var dragging = _drag?.Container == c;
-            var onScreen = c.Slots.Keys.Any(h => WindowQuery.IsCandidate((IntPtr)h) && !Win32.IsIconic((IntPtr)h));
             var monitor = monitors.FirstOrDefault(m => m.DeviceName == c.DeviceName);
 
-            // An edited layout whose windows have all gone (minimised, closed) leaves edit mode.
-            if (_editing == c && !dragging && (!onScreen || monitor is null)) ExitEdit();
+            // An edited layout whose monitor has gone leaves edit mode. (One with no windows — none yet, or all
+            // minimised or closed — stays: it can be set up empty.)
+            if (_editing == c && !dragging && monitor is null) ExitEdit();
 
             if (_editing == c || dragging)
                 ShowHandles(c, monitor);
@@ -422,7 +421,9 @@ internal sealed class ZoneContainerService : IDisposable
             _handles[c] = h;
         }
 
-        h.Panel.SetLabel($"{c.Layout.Name} · {c.Slots.Count} window{(c.Slots.Count == 1 ? "" : "s")}");
+        h.Panel.SetLabel(c.Slots.Count == 0
+            ? $"{c.Layout.Name} · no windows yet"
+            : $"{c.Layout.Name} · {c.Slots.Count} window{(c.Slots.Count == 1 ? "" : "s")}");
         h.Panel.SetCurrentLayout(c.LayoutId);
         h.Panel.SetGaps(_settings().ZoneGaps);
         h.Panel.SetAdjusting(_adjusting.Contains(c));
@@ -537,12 +538,8 @@ internal sealed class ZoneContainerService : IDisposable
 
         if (!Win32.GetCursorPos(out var cursor) || MonitorAt((cursor.x, cursor.y)) is not { } monitor) return;
         Prune();
-        if (ContainerOn(monitor.DeviceName) is not { } c)
-            Notice?.Invoke($"No zone layout on {monitor.ShortName} — drag a window to the top of the screen, or Shift-drag it, to start one.");
-        else if (!c.Slots.Keys.Any(h => WindowQuery.IsCandidate((IntPtr)h) && !Win32.IsIconic((IntPtr)h)))
-            Notice?.Invoke($"The layout on {monitor.ShortName} has no windows on screen.");
-        else
-            EnterEdit(c, monitor);
+        // Any monitor can be edited, windows or not — set a layout up (preset, frame, splits) before using it.
+        EnterEdit(GetOrCreate(monitor), monitor);
     }
 
     private void EnterEdit(ZoneContainer c, MonitorInfo monitor)
@@ -680,7 +677,11 @@ internal sealed class ZoneContainerService : IDisposable
         var panel = h.Panel.PixelSizeAt(scale);
         h.Panel.Position = new PixelPoint(f.X + (f.Width - panel.Width) / 2, f.Y + (int)(PanelOffset * scale));
 
-        if (_editing == c) _editFrame?.Place(f, scale);
+        if (_editing == c && _editFrame is not null)
+        {
+            _editFrame.Place(f, scale);
+            _editFrame.SetZones(c.Zones(_settings().EffectiveZoneSpacing), f);
+        }
 
         // Each divider strip covers the gap between its zones.
         var dividers = c.Dividers();
