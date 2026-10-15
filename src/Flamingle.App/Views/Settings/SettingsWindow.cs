@@ -287,16 +287,8 @@ internal sealed class SettingsWindow : Window
         };
     }
 
-    /// <summary>Where a saved window goes back to, e.g. <c>DISPLAY1 · zones 1–2 of columns-3</c>.</summary>
-    private static string Place(SavedWindow w)
-    {
-        var p = w.Placement;
-        var where = p.Monitor.TrimStart('\\', '.');
-        var how = w.Zone is { } z ? $"zone{(z.Zones.Count == 1 ? "" : "s")} {string.Join("+", z.Zones.Select(i => i + 1))} of {z.LayoutId}"
-            : p.Maximised ? "maximised"
-            : $"{p.Restored.Width}×{p.Restored.Height} at {p.Restored.X},{p.Restored.Y}";
-        return $"{where} · {how}{(p.Minimised ? " (minimised)" : "")}";
-    }
+    /// <summary>Where a saved window goes back to, e.g. <c>DISPLAY1 · zones 1+2 of 3 columns</c>.</summary>
+    private static string Place(SavedWindow w) => w.PlaceText() + (w.Placement.Minimised ? " (minimised)" : "");
 
     /// <summary>How a saved window's app would be started.</summary>
     private static string Recipe(SavedWindow w)

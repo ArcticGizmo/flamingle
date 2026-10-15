@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Flamingle.Core.Geometry;
 
 namespace Flamingle.Core.Saved;
@@ -5,11 +6,39 @@ namespace Flamingle.Core.Saved;
 /// <summary>
 /// A flock saved as a recipe (<c>saved-flocks.json</c>): enough about each window to find it again among running
 /// apps, or to start its app and put the new window back where it was. Unlike a live <see cref="Grouping.Flock"/>
-/// it holds no window handles, so it survives the apps closing and a reboot. It's a snapshot — it only changes
-/// when the flock is saved again.
+/// it holds no window handles, so it survives the apps closing and a reboot. Saving the flock again replaces the
+/// capture; the designer edits each window's <see cref="SavedWindow.Recipe"/> and the <see cref="Inputs"/> it
+/// asks for when it loads.
 /// </summary>
-public sealed record SavedFlock(Guid Id, string Name, DateTimeOffset SavedAt, List<SavedWindow> Windows)
+public sealed record SavedFlock(
+    Guid Id, string Name, DateTimeOffset SavedAt, List<SavedWindow> Windows, List<FlockInput>? Inputs = null)
 {
+    /// <summary>The inputs (none for a flock that starts the same way every time).</summary>
+    [JsonIgnore]
+    public IReadOnlyList<FlockInput> InputList => Inputs ?? [];
+
+    public FlockInput? Input(string name)
+        => InputList.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Rename an input and every <c>${name}</c> that uses it — in the windows' recipes and in computed
+    /// inputs' commands — so renaming never breaks the flock.</summary>
+    public SavedFlock RenameInput(string from, string to)
+    {
+        if (Input(from) is null || string.Equals(from, to, StringComparison.Ordinal)) return this;
+        string Map(string t) => Placeholders.Rename(t, from, to);
+        return this with
+        {
+            Inputs = InputList
+                .Select(i => i with
+                {
+                    Name = string.Equals(i.Name, from, StringComparison.OrdinalIgnoreCase) ? to : i.Name,
+                    Default = i.Kind == InputKind.Computed ? Map(i.Default) : i.Default,
+                })
+                .ToList(),
+            Windows = Windows.Select(w => w.WithRecipe(w.EffectiveRecipe().MapTemplates(Map))).ToList(),
+        };
+    }
+
     /// <summary>The zone layout most of its zoned windows were in (ties go to the topmost window's), or null if none
     /// was zoned.</summary>
     public string? MainZoneLayout() => Windows
@@ -35,6 +64,7 @@ public sealed record SavedFlock(Guid Id, string Name, DateTimeOffset SavedAt, Li
 /// <param name="Desktop">The virtual desktop it was on, if known.</param>
 /// <param name="Zone">Set if it was snapped into a zone layout.</param>
 /// <param name="Elevated">Runs as administrator — relaunching it would prompt.</param>
+/// <param name="Recipe">How to open it now, as edited in the designer; null = as captured.</param>
 public sealed record SavedWindow(
     string ProcessName,
     string? ExePath,
@@ -47,7 +77,34 @@ public sealed record SavedWindow(
     int ZIndex,
     Guid? Desktop = null,
     SavedZone? Zone = null,
-    bool Elevated = false);
+    bool Elevated = false,
+    LaunchRecipe? Recipe = null)
+{
+    /// <summary>The edited recipe, else the captured one.</summary>
+    public LaunchRecipe EffectiveRecipe() => Recipe ?? LaunchRecipe.FromCaptured(this);
+
+    /// <summary>Edited since it was captured ("Changed since it was saved").</summary>
+    [JsonIgnore]
+    public bool IsChanged => Recipe is not null && Recipe != LaunchRecipe.FromCaptured(this);
+
+    /// <summary>Set the recipe — dropping it when it's just the captured one again.</summary>
+    public SavedWindow WithRecipe(LaunchRecipe recipe)
+        => this with { Recipe = recipe == LaunchRecipe.FromCaptured(this) ? null : recipe };
+
+    /// <summary>Back to how it was captured ("Undo changes").</summary>
+    public SavedWindow AsCaptured() => this with { Recipe = null };
+
+    /// <summary>Where it goes back to, e.g. <c>DISPLAY1 · zones 1+2 of 3 columns</c> or <c>DISPLAY2 · maximised</c>.</summary>
+    public string PlaceText()
+    {
+        var p = Placement;
+        var how = Zone is { } z
+            ? $"zone{(z.Zones.Count == 1 ? "" : "s")} {string.Join("+", z.Zones.Select(i => i + 1))} of {Zones.ZoneLayout.ById(z.LayoutId).Name}"
+            : p.Maximised ? "maximised"
+            : $"{p.Restored.Width}×{p.Restored.Height} at {p.Restored.X},{p.Restored.Y}";
+        return $"{p.Monitor.TrimStart('\\', '.')} · {how}";
+    }
+}
 
 /// <summary>Where a window was, in physical pixels, with the monitor it was on so it can be rescaled onto a
 /// different set of monitors.</summary>

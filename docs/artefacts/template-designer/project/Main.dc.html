@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Flock template designer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0B0F14}
+a{color:#7DD3FC}a:hover{color:#BAE6FD}
+.f{box-sizing:border-box;width:100%;min-height:34px;padding:6px 9px;border:1px solid #2A333D;border-radius:6px;background:#0B0F14;color:#E6EDF3;font:13px/1.4 'IBM Plex Mono',ui-monospace,monospace}
+.f:focus{outline:2px solid #7DD3FC;outline-offset:-1px}
+.fs{font-family:'IBM Plex Sans',system-ui,sans-serif}
+.btn{min-height:34px;padding:6px 12px;border:1px solid #2A333D;border-radius:6px;background:#1E262F;color:#E6EDF3;font:500 13px 'IBM Plex Sans',system-ui,sans-serif;cursor:pointer}
+.btn:hover{background:#26303A}
+.btn:focus-visible,.row:focus-visible,.chip:focus-visible,.link:focus-visible{outline:2px solid #7DD3FC;outline-offset:1px}
+.primary{background:#7DD3FC;border-color:#7DD3FC;color:#0B1220}
+.primary:hover{background:#BAE6FD}
+.link{padding:4px 0;border:0;background:none;color:#7DD3FC;font:500 13px 'IBM Plex Sans',system-ui,sans-serif;cursor:pointer}
+.link:hover{color:#BAE6FD}
+.row{width:100%;text-align:left;cursor:pointer;border:0;background:none;color:inherit;font:inherit}
+.row:hover{background:#202933}
+.chip{cursor:pointer}
+.lbl{display:block;margin:0 0 4px;color:#8B98A5;font:500 12px 'IBM Plex Sans',system-ui,sans-serif}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: #0B0F14; color: #E6EDF3; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px">
+
+  <nav aria-label="Settings sections" style="flex: 1 1 170px; max-width: 100%; padding: 20px 0; background: #0B0F14; border-right: 1px solid #1A2129">
+    <div style="padding: 0 18px 14px; color: #F5F8FA; font-weight: 600; font-size: 15px">Flamingle Settings</div>
+    <div aria-current="page" style="padding: 10px 15px; border-left: 3px solid #7DD3FC; background: #1E262F; color: #F5F8FA">Flocks</div>
+    <div style="padding: 10px 18px; color: #8B98A5">Zones</div>
+    <div style="padding: 10px 18px; color: #8B98A5">Windows snapping</div>
+    <div style="padding: 10px 18px; color: #8B98A5">Taskbar</div>
+    <div style="padding: 10px 18px; color: #8B98A5">Behaviour</div>
+    <div style="padding: 10px 18px; color: #8B98A5">Shortcuts</div>
+    <div style="padding: 10px 18px; color: #8B98A5">About</div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 22px 28px 40px; background: #11161C; display: flex; flex-direction: column; gap: 26px">
+    <div style="width: 100%; max-width: 780px; display: flex; flex-direction: column; gap: 26px">
+
+      <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; justify-content: space-between">
+        <div style="flex: 1 1 280px; min-width: 0">
+          <div style="color: #8B98A5; font-size: 12px; margin-bottom: 4px">Flocks › Saved flocks</div>
+          <label for="tpl-name" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Saved flock name</label>
+          <input id="tpl-name" class="f fs" style="min-height: 0; padding: 2px 6px; margin-left: -7px; border-color: transparent; background: transparent; font-size: 22px; font-weight: 600; max-width: 420px" value="{{name}}" onChange="{{setName}}">
+          <div style="color: #8B98A5; font-size: 13px; margin-top: 2px">{{subtitle}}</div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+          <button class="btn" type="button" aria-pressed="{{testOpen}}" onClick="{{toggleTest}}" style="{{testStyle}}">Test load</button>
+          <button class="btn primary" type="button">Save changes</button>
+        </div>
+      </div>
+
+      <section aria-labelledby="asks-h" style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px">
+          <h2 id="asks-h" style="margin: 0; font-size: 15px; font-weight: 600; color: #F5F8FA">Asks for</h2>
+          <sc-if value="{{hasInputs}}" hint-placeholder-val="{{ false }}">
+            <button class="link" type="button" onClick="{{addInput}}">Add input</button>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{noInputs}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; color: #8B98A5">
+            <span>Nothing — it starts the same way every time.</span>
+            <button class="link" type="button" onClick="{{addInput}}">Add an input</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{hasSuggestion}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 10px; background: #12303D">
+            <div style="flex: 1 1 320px; min-width: 0; color: #D7EEF9; line-height: 1.5">
+              <code style="font-family: 'IBM Plex Mono', monospace; color: #7DD3FC; overflow-wrap: anywhere">{{suggestion.path}}</code> is used by {{suggestion.where}}. Choose it each time you load instead?
+            </div>
+            <div style="display: flex; gap: 8px">
+              <button class="btn primary" type="button" onClick="{{acceptSuggestion}}">Make it an input</button>
+              <button class="btn" type="button" onClick="{{dismissSuggestion}}">No thanks</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{hasInputs}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-wrap: wrap; gap: 8px">
+            <sc-for list="{{inputChips}}" as="c" hint-placeholder-count="2">
+              <button class="chip" type="button" aria-expanded="{{c.open}}" onClick="{{c.toggle}}" style="{{c.style}}">
+                <span style="font-weight: 500">{{c.label}}</span>
+                <span style="color: #8B98A5; font-size: 12px">{{c.kindText}}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{hasEditing}}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 14px; border-radius: 10px; background: #1A2129; display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; flex-wrap: wrap; gap: 10px">
+              <div style="flex: 2 1 200px">
+                <label class="lbl" for="ed-label">Asked as</label>
+                <input id="ed-label" class="f fs" value="{{ed.label}}" onChange="{{ed.setLabel}}">
+              </div>
+              <div style="flex: 1 1 140px">
+                <label class="lbl" for="ed-kind">Kind</label>
+                <select id="ed-kind" class="f fs" value="{{ed.type}}" onChange="{{ed.setType}}">
+                  <option>Text</option>
+                  <option>Folder</option>
+                  <option>File</option>
+                  <option>Number</option>
+                  <option>Choice</option>
+                  <option>Computed</option>
+                </select>
+              </div>
+              <div style="flex: 1 0 100%">
+                <label class="lbl" for="ed-def">{{ed.defLabel}}</label>
+                <input id="ed-def" class="f" value="{{ed.def}}" onChange="{{ed.setDef}}">
+                <div style="color: #8B98A5; font-size: 12px; margin-top: 4px">{{ed.hint}}</div>
+              </div>
+            </div>
+            <sc-if value="{{ed.canRemember}}" hint-placeholder-val="{{ true }}">
+              <label style="display: flex; align-items: center; gap: 8px; color: #C9D3DC; font-size: 13px">
+                <input type="checkbox" checked="{{ed.remember}}" onChange="{{ed.toggleRemember}}" style="width: 16px; height: 16px; accent-color: #7DD3FC">
+                Offer recently used values first
+              </label>
+            </sc-if>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; border-top: 1px solid #2A333D; padding-top: 10px">
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: #8B98A5; font-size: 12px">
+                <label for="ed-id">Written in commands as</label>
+                <span style="font-family: 'IBM Plex Mono', monospace; color: #7DD3FC">${</span>
+                <input id="ed-id" class="f" value="{{ed.id}}" onChange="{{ed.setId}}" style="width: 120px; min-height: 28px; padding: 3px 6px; font-size: 12px">
+                <span style="font-family: 'IBM Plex Mono', monospace; color: #7DD3FC">}</span>
+                <span>· {{ed.usage}}</span>
+              </div>
+              <button class="link" type="button" onClick="{{ed.remove}}" style="color: #FDBA74">Remove input</button>
+            </div>
+          </div>
+        </sc-if>
+      </section>
+
+      <section aria-labelledby="starts-h" style="display: flex; flex-direction: column; gap: 10px">
+        <h2 id="starts-h" style="margin: 0; font-size: 15px; font-weight: 600; color: #F5F8FA">Starts</h2>
+        <div style="border-radius: 10px; background: #1A2129; overflow: hidden">
+          <sc-for list="{{windowRows}}" as="w" hint-placeholder-count="3">
+            <div style="border-top: {{w.divider}}">
+              <button class="row" type="button" aria-expanded="{{w.open}}" onClick="{{w.toggle}}" style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 56px; box-sizing: border-box">
+                <span aria-hidden="true" style="flex: 0 0 auto; width: 30px; height: 30px; border-radius: 7px; background: {{w.tint}}; color: #0B1220; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px">{{w.initial}}</span>
+                <span style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span style="display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline">
+                    <span style="font-weight: 600; color: #F5F8FA">{{w.app}}</span>
+                    <span style="color: #8B98A5; font-size: 12px">{{w.place}}</span>
+                    <sc-if value="{{w.hasBadge}}" hint-placeholder-val="{{ false }}">
+                      <span style="padding: 1px 7px; border-radius: 999px; background: #26303A; color: #C9D3DC; font-size: 11px">{{w.badge}}</span>
+                    </sc-if>
+                    <sc-if value="{{w.hasProblem}}" hint-placeholder-val="{{ false }}">
+                      <span style="padding: 1px 7px; border-radius: 999px; background: #3B2A17; color: #FDBA74; font-size: 11px">Unknown input</span>
+                    </sc-if>
+                  </span>
+                  <span style="display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'IBM Plex Mono', monospace; font-size: 12px"><sc-for list="{{w.summarySegs}}" as="s" hint-placeholder-count="2"><span style="{{s.style}}">{{s.text}}</span></sc-for></span>
+                </span>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#8B98A5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{w.chevron}}"><path d="M5 3l4 4-4 4"></path></svg>
+              </button>
+
+              <sc-if value="{{w.open}}" hint-placeholder-val="{{ false }}">
+                <div style="padding: 4px 14px 16px 56px; display: flex; flex-direction: column; gap: 12px">
+                  <sc-if value="{{w.launches}}" hint-placeholder-val="{{ true }}">
+                    <div>
+                      <label class="lbl" for="{{w.key}}-args">Arguments</label>
+                      <input id="{{w.key}}-args" class="f" value="{{w.args}}" onChange="{{w.setArgs}}">
+                      <sc-if value="{{w.showResolved}}" hint-placeholder-val="{{ false }}">
+                        <div style="margin-top: 5px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere"><span style="color: #8B98A5; font-family: 'IBM Plex Sans', sans-serif">Becomes </span><sc-for list="{{w.argSegs}}" as="s" hint-placeholder-count="2"><span style="{{s.style}}">{{s.text}}</span></sc-for></div>
+                      </sc-if>
+                    </div>
+                    <sc-if value="{{w.showCwd}}" hint-placeholder-val="{{ true }}">
+                      <div>
+                        <label class="lbl" for="{{w.key}}-cwd">Start in</label>
+                        <input id="{{w.key}}-cwd" class="f" value="{{w.cwd}}" onChange="{{w.setCwd}}">
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{w.offerCwd}}" hint-placeholder-val="{{ false }}">
+                      <div><button class="link" type="button" onClick="{{w.addCwd}}">Start in a particular folder</button></div>
+                    </sc-if>
+                  </sc-if>
+                  <sc-if value="{{w.notLaunching}}" hint-placeholder-val="{{ false }}">
+                    <div style="color: #C9D3DC; font-size: 13px">{{w.notLaunchingText}}</div>
+                  </sc-if>
+
+                  <div>
+                    <button class="link" type="button" aria-expanded="{{w.more}}" onClick="{{w.toggleMore}}" style="display: inline-flex; align-items: center; gap: 6px">
+                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{w.moreChevron}}"><path d="M5 3l4 4-4 4"></path></svg>
+                      More options
+                    </button>
+                  </div>
+                  <sc-if value="{{w.more}}" hint-placeholder-val="{{ false }}">
+                    <div style="display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 8px; background: #11161C">
+                      <div>
+                        <span class="lbl" id="{{w.key}}-kind-l">How it's opened</span>
+                        <div role="group" aria-labelledby="{{w.key}}-kind-l" style="display: inline-flex; flex-wrap: wrap; border: 1px solid #2A333D; border-radius: 7px; overflow: hidden">
+                          <sc-for list="{{w.kinds}}" as="k" hint-placeholder-count="4">
+                            <button type="button" aria-pressed="{{k.on}}" onClick="{{k.pick}}" style="{{k.style}}">{{k.label}}</button>
+                          </sc-for>
+                        </div>
+                      </div>
+                      <sc-if value="{{w.launches}}" hint-placeholder-val="{{ true }}">
+                        <div>
+                          <label class="lbl" for="{{w.key}}-exe">{{w.targetLabel}}</label>
+                          <input id="{{w.key}}-exe" class="f" value="{{w.exe}}" onChange="{{w.setExe}}">
+                        </div>
+                      </sc-if>
+                      <div style="display: flex; flex-wrap: wrap; gap: 10px">
+                        <div style="flex: 2 1 220px">
+                          <label class="lbl" for="{{w.key}}-match">Recognise its window by title containing</label>
+                          <input id="{{w.key}}-match" class="f" value="{{w.match}}" onChange="{{w.setMatch}}" placeholder="any {{w.app}} window">
+                        </div>
+                        <div style="flex: 1 1 150px">
+                          <label class="lbl" for="{{w.key}}-open">If one's already open</label>
+                          <select id="{{w.key}}-open" class="f fs" value="{{w.ifOpen}}" onChange="{{w.setIfOpen}}">
+                            <option>Use it</option>
+                            <option>Start another</option>
+                            <option>Ask</option>
+                          </select>
+                        </div>
+                        <div style="flex: 0 1 110px">
+                          <label class="lbl" for="{{w.key}}-wait">Wait up to (s)</label>
+                          <input id="{{w.key}}-wait" class="f" type="number" min="1" max="120" value="{{w.timeout}}" onChange="{{w.setTimeout}}">
+                        </div>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{w.changed}}" hint-placeholder-val="{{ false }}">
+                    <div style="display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; color: #8B98A5; font-size: 12px">
+                      <span>Changed since it was saved.</span>
+                      <button class="link" type="button" onClick="{{w.useCaptured}}" style="font-size: 12px">Undo changes</button>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <sc-if value="{{testOpen}}" hint-placeholder-val="{{ false }}">
+    <aside aria-labelledby="try-h" style="flex: 1 1 320px; min-width: 0; padding: 22px 22px 40px; background: #0F141A; border-left: 1px solid #1A2129; display: flex; flex-direction: column; gap: 18px">
+      <div>
+        <h2 id="try-h" style="margin: 0 0 4px; font-size: 15px; font-weight: 600; color: #F5F8FA">Test load</h2>
+        <p style="margin: 0; color: #8B98A5; font-size: 12px">What loading asks, and what it then does. Nothing starts from here.</p>
+      </div>
+
+      <sc-if value="{{noInputs}}" hint-placeholder-val="{{ false }}">
+        <p style="margin: 0; color: #C9D3DC; font-size: 13px">Nothing to ask — loading starts straight away.</p>
+      </sc-if>
+      <sc-for list="{{inputChips}}" as="c" hint-placeholder-count="2">
+        <div>
+          <label class="lbl" for="{{c.key}}-val">{{c.label}}</label>
+          <sc-if value="{{c.computed}}" hint-placeholder-val="{{ false }}">
+            <div class="f" style="color: #C9D3DC; background: #11161C">{{c.value}}</div>
+            <div style="color: #8B98A5; font-size: 11px; margin-top: 3px">worked out when it loads</div>
+          </sc-if>
+          <sc-if value="{{c.editable}}" hint-placeholder-val="{{ true }}">
+            <input id="{{c.key}}-val" class="f" value="{{c.value}}" onChange="{{c.setValue}}">
+          </sc-if>
+        </div>
+      </sc-for>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <h3 style="margin: 0; font-size: 13px; font-weight: 600; color: #F5F8FA">Then</h3>
+        <ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; color: #C9D3DC; font-size: 13px; line-height: 1.5">
+          <sc-for list="{{windowRows}}" as="w" hint-placeholder-count="3">
+            <li>{{w.step}}</li>
+          </sc-for>
+        </ol>
+      </div>
+
+      <div>
+        <button class="link" type="button" aria-expanded="{{storedOpen}}" onClick="{{toggleStored}}" style="font-size: 12px">{{storedLabel}}</button>
+        <sc-if value="{{storedOpen}}" hint-placeholder-val="{{ false }}">
+          <pre style="margin: 8px 0 0; padding: 12px; max-height: 380px; overflow: auto; border-radius: 8px; background: #0B0F14; border: 1px solid #1A2129; color: #C9D3DC; font: 12px/1.5 'IBM Plex Mono', monospace; white-space: pre">{{storedJson}}</pre>
+        </sc-if>
+      </div>
+    </aside>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"scene":{"editor":"enum","options":["Just captured","Made it an input","Window details","Computed input","Problems","Test load"],"default":"Just captured"},"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.captured = {
+      code: { exe: 'C:\\Program Files\\Microsoft VS Code\\Code.exe', args: '--new-window "C:\\src\\flamingle"', cwd: 'C:\\src\\flamingle', match: '' },
+      wt: { exe: 'Microsoft.WindowsTerminal_8wekyb3d8bbwe!App', args: '-d "C:\\src\\flamingle"', cwd: '', match: '' },
+      edge: { exe: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', args: '--new-window http://localhost:5173', cwd: '', match: '' },
+    };
+    this.state = this.initial(props.scene);
+  }
+
+  componentDidUpdate(prev) {
+    if (prev.scene !== this.props.scene) this.setState(this.initial(this.props.scene));
+  }
+
+  // Each scene is the designer opened up to a different point — the canvas shows one per artboard.
+  initial(scene) {
+    const base = [
+      { key: 'code', app: 'Visual Studio Code', tint: '#7DD3FC', kind: 'Program', ifOpen: 'Use it', timeout: 20, place: 'DISPLAY1 · left half' },
+      { key: 'wt', app: 'Windows Terminal', tint: '#A7F3D0', kind: 'Store app', ifOpen: 'Start another', timeout: 15, place: 'DISPLAY1 · right half' },
+      { key: 'edge', app: 'Microsoft Edge', tint: '#FDBA74', kind: 'Program', ifOpen: 'Use it', timeout: 20, place: 'DISPLAY2 · maximised' },
+    ];
+    const common = { name: 'Flamingle dev', openWin: null, more: {}, openInput: null, testOpen: false, storedOpen: false, dismissed: [], nextInput: 4, showCwd: {} };
+    const captured = { ...common, inputs: [], windows: base.map((w) => ({ ...w, ...this.captured[w.key] })) };
+
+    if (scene === 'Made it an input') {
+      return { ...captured, ...this.accept(captured, this.suggestion(captured)), openWin: 'code' };
+    }
+    if (!scene || scene === 'Just captured') return captured;
+
+    const set = {
+      code: { args: '--new-window "${worktree}"', cwd: '${worktree}', match: '${worktree.name}' },
+      wt: { args: '-d "${worktree}" --title "${branch}"', cwd: '', match: '${branch}' },
+      edge: { args: '--new-window http://localhost:${port}', cwd: '', match: 'localhost:${port}' },
+    };
+    const setUp = {
+      ...common,
+      inputs: [
+        { key: 'i1', id: 'worktree', label: 'Worktree', type: 'Folder', def: 'C:\\src\\flamingle', value: 'C:\\src\\flamingle-saved-flocks', remember: true },
+        { key: 'i2', id: 'branch', label: 'Branch', type: 'Computed', def: 'git -C "${worktree}" branch --show-current', value: 'saved-flocks', remember: false },
+        { key: 'i3', id: 'port', label: 'Dev server port', type: 'Number', def: '5173', value: '5174', remember: true },
+      ],
+      windows: base.map((w) => ({ ...w, exe: this.captured[w.key].exe, ...set[w.key] })),
+    };
+
+    if (scene === 'Window details') return { ...setUp, openWin: 'edge', more: { edge: true } };
+    if (scene === 'Computed input') return { ...setUp, openInput: 'i2', openWin: 'wt' };
+    if (scene === 'Test load') return { ...setUp, testOpen: true, storedOpen: true };
+    if (scene === 'Problems') {
+      return {
+        ...setUp,
+        openWin: 'wt',
+        more: { wt: true },
+        windows: setUp.windows.map((w) => (w.key === 'wt' ? { ...w, args: '-d "${wrktree}" --title "${branch}"' }
+          : w.key === 'edge' ? { ...w, kind: 'Already open' } : w)),
+      };
+    }
+    return captured;
+  }
+
+  // Turn a suggested folder into an input: replace it everywhere it's used, and open the new input to name it.
+  accept(st, sug) {
+    if (!sug) return {};
+    const taken = st.inputs.map((x) => x.id);
+    let id = 'folder';
+    for (let k = 2; taken.indexOf(id) >= 0; k++) id = 'folder' + k;
+    const key = 'i' + st.nextInput;
+    const swap = (t) => t.split(sug.path).join('${' + id + '}');
+    return {
+      nextInput: st.nextInput + 1,
+      openInput: key,
+      inputs: [...st.inputs, { key, id, label: 'Project folder', type: 'Folder', def: sug.path, value: sug.path, remember: true }],
+      windows: st.windows.map((w) => ({ ...w, args: swap(w.args), cwd: swap(w.cwd) })),
+    };
+  }
+
+  values() {
+    const vals = {};
+    for (const x of this.state.inputs) vals[x.id] = x.type === 'Computed' || x.value !== '' ? x.value : x.def;
+    return vals;
+  }
+
+  // A template string → display segments: plain text, a filled-in input value, or an unknown name.
+  segments(text, vals) {
+    const plain = 'color: #C9D3DC';
+    const filled = 'color: #7DD3FC; background: rgba(125, 211, 252, 0.12); border-radius: 3px; padding: 0 2px';
+    const unknown = 'color: #FDBA74; text-decoration: underline wavy #FDBA74';
+    const out = [];
+    let bad = 0;
+    let vars = 0;
+    let last = 0;
+    const re = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?:\.(name|parent))?\}/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) out.push({ text: text.slice(last, m.index), style: plain });
+      let v = vals[m[1]];
+      if (v === undefined) {
+        out.push({ text: m[0], style: unknown });
+        bad++;
+      } else {
+        const parts = String(v).split(/[\\/]/).filter(Boolean);
+        if (m[2] === 'name') v = parts[parts.length - 1] || '';
+        if (m[2] === 'parent') v = parts.slice(0, -1).join('\\');
+        out.push({ text: v, style: filled });
+        vars++;
+      }
+      last = re.lastIndex;
+    }
+    if (last < text.length) out.push({ text: text.slice(last), style: plain });
+    return { segs: out, bad, vars };
+  }
+
+  // The folder path most windows share in their arguments / start-in folder, as a candidate input.
+  suggestion(st) {
+    const re = /[A-Za-z]:\\[^"\s]*/g;
+    const counts = {};
+    for (const w of st.windows) {
+      const seen = {};
+      for (const t of [w.args, w.cwd]) for (const p of (t.match(re) || [])) seen[p.replace(/\\$/, '')] = true;
+      for (const p of Object.keys(seen)) counts[p] = (counts[p] || 0) + 1;
+    }
+    const best = Object.keys(counts)
+      .filter((p) => st.dismissed.indexOf(p) < 0)
+      .sort((a, b) => counts[b] - counts[a])[0];
+    if (!best) return null;
+    const n = counts[best];
+    return { path: best, where: n === 1 ? 'one window' : n + ' windows' };
+  }
+
+  setIn(key, field, v) {
+    this.setState({ inputs: this.state.inputs.map((x) => (x.key === key ? { ...x, [field]: v } : x)) });
+  }
+
+  setWin(key, field, v) {
+    this.setState({ windows: this.state.windows.map((x) => (x.key === key ? { ...x, [field]: v } : x)) });
+  }
+
+  renderVals() {
+    const st = this.state;
+    const vals = this.values();
+    const sug = this.suggestion(st);
+
+    const hints = {
+      Text: 'Typed in when the flock loads.',
+      Folder: 'Picked with a folder browser.',
+      File: 'Picked with a file browser.',
+      Number: 'A whole number — a port, a display.',
+      Choice: 'One of these, comma-separated.',
+      Computed: 'Not asked for: this command runs when the flock loads, and what it prints becomes the value.',
+    };
+
+    const usage = (id) => {
+      const needle = '${' + id;
+      const n = st.windows.filter((w) => [w.args, w.cwd, w.match].some((t) => t.indexOf(needle) >= 0)).length;
+      return n === 0 ? 'not used yet' : n === 1 ? 'used by 1 window' : 'used by ' + n + ' windows';
+    };
+
+    const inputChips = st.inputs.map((x) => {
+      const open = st.openInput === x.key;
+      return {
+        ...x,
+        open,
+        computed: x.type === 'Computed',
+        editable: x.type !== 'Computed',
+        kindText: x.type.toLowerCase(),
+        style: 'display: inline-flex; gap: 8px; align-items: baseline; min-height: 34px; padding: 6px 12px; border-radius: 999px; font: 13px \'IBM Plex Sans\', system-ui, sans-serif; color: #E6EDF3; '
+          + (open ? 'border: 1px solid #7DD3FC; background: #12303D' : 'border: 1px solid #2A333D; background: #1A2129'),
+        toggle: () => this.setState({ openInput: open ? null : x.key }),
+        setValue: (e) => this.setIn(x.key, 'value', e.target.value),
+      };
+    });
+
+    const editing = st.inputs.find((x) => x.key === st.openInput);
+    const ed = editing && {
+      ...editing,
+      defLabel: editing.type === 'Computed' ? 'Command' : editing.type === 'Choice' ? 'Choices' : 'Default',
+      hint: hints[editing.type] || '',
+      canRemember: editing.type !== 'Computed' && editing.type !== 'Choice',
+      usage: usage(editing.id),
+      setLabel: (e) => this.setIn(editing.key, 'label', e.target.value),
+      setType: (e) => this.setIn(editing.key, 'type', e.target.value),
+      setDef: (e) => this.setIn(editing.key, 'def', e.target.value),
+      setId: (e) => this.setIn(editing.key, 'id', e.target.value.replace(/[^A-Za-z0-9_]/g, '')),
+      toggleRemember: () => this.setIn(editing.key, 'remember', !editing.remember),
+      remove: () => this.setState({ inputs: st.inputs.filter((x) => x.key !== editing.key), openInput: null }),
+    };
+
+    const kindStyle = (on) => 'min-height: 32px; padding: 5px 11px; border: 0; border-right: 1px solid #2A333D; font: 500 12px \'IBM Plex Sans\', system-ui, sans-serif; cursor: pointer; '
+      + (on ? 'background: #7DD3FC; color: #0B1220' : 'background: #1A2129; color: #C9D3DC');
+
+    const windowRows = st.windows.map((w, i) => {
+      const open = st.openWin === w.key;
+      const more = !!st.more[w.key];
+      const launches = w.kind === 'Program' || w.kind === 'Store app';
+      const args = this.segments(w.args, vals);
+      const cwd = this.segments(w.cwd, vals);
+      const match = this.segments(w.match, vals);
+      const cap = this.captured[w.key];
+      const matchText = w.match ? ' titled “' + match.segs.map((s) => s.text).join('') + '”' : '';
+
+      const summarySegs = w.kind === 'Skip' ? [{ text: 'Left out when loading', style: 'color: #8B98A5' }]
+        : !launches ? [{ text: 'Never started — uses a window that’s already open', style: 'color: #8B98A5' }]
+        : args.segs.length ? args.segs : [{ text: 'no arguments', style: 'color: #8B98A5' }];
+
+      const step = w.kind === 'Skip' ? 'Skips ' + w.app + '.'
+        : !launches ? 'Waits for an open ' + w.app + ' window' + matchText + ', then puts it on ' + w.place + '.'
+        : (w.ifOpen === 'Use it' ? 'Uses an open ' + w.app + ' window' + matchText + ', or starts one'
+          : w.ifOpen === 'Ask' ? 'Asks whether to use an open ' + w.app + ' window' + matchText
+          : 'Starts a new ' + w.app + ' window' + matchText)
+          + ', on ' + w.place + '.';
+
+      return {
+        ...w,
+        open,
+        more,
+        launches,
+        notLaunching: !launches,
+        notLaunchingText: w.kind === 'Skip' ? 'Left out when the flock loads.' : 'Never started — Flamingle waits for a matching window that’s already open and puts it in place.',
+        divider: i === 0 ? '0' : '1px solid #2A333D',
+        initial: w.app.slice(0, 1),
+        badge: w.kind === 'Already open' ? 'already open' : w.kind === 'Skip' ? 'skipped' : w.ifOpen === 'Start another' ? 'always new' : '',
+        hasBadge: w.kind !== 'Program' && w.kind !== 'Store app' || w.ifOpen === 'Start another',
+        hasProblem: args.bad + cwd.bad + match.bad > 0,
+        summarySegs,
+        argSegs: args.segs,
+        showResolved: args.vars + args.bad > 0,
+        showCwd: !!w.cwd || !!st.showCwd[w.key],
+        offerCwd: !w.cwd && !st.showCwd[w.key],
+        targetLabel: w.kind === 'Store app' ? 'App id' : 'Program',
+        changed: w.args !== cap.args || w.exe !== cap.exe || w.cwd !== cap.cwd || w.match !== cap.match,
+        chevron: open ? 'transform: rotate(90deg); flex: 0 0 auto' : 'flex: 0 0 auto',
+        moreChevron: more ? 'transform: rotate(90deg)' : '',
+        step,
+        kinds: ['Program', 'Store app', 'Already open', 'Skip'].map((label) => ({
+          label,
+          on: w.kind === label,
+          style: kindStyle(w.kind === label),
+          pick: () => this.setWin(w.key, 'kind', label),
+        })),
+        toggle: () => this.setState({ openWin: open ? null : w.key }),
+        toggleMore: () => this.setState({ more: { ...st.more, [w.key]: !more } }),
+        addCwd: () => this.setState({ showCwd: { ...st.showCwd, [w.key]: true } }),
+        setExe: (e) => this.setWin(w.key, 'exe', e.target.value),
+        setArgs: (e) => this.setWin(w.key, 'args', e.target.value),
+        setCwd: (e) => this.setWin(w.key, 'cwd', e.target.value),
+        setMatch: (e) => this.setWin(w.key, 'match', e.target.value),
+        setIfOpen: (e) => this.setWin(w.key, 'ifOpen', e.target.value),
+        setTimeout: (e) => this.setWin(w.key, 'timeout', Number(e.target.value) || 1),
+        useCaptured: () => this.setState({ windows: st.windows.map((x) => (x.key === w.key ? { ...x, ...cap } : x)) }),
+      };
+    });
+
+    const stored = {
+      name: st.name,
+      inputs: st.inputs.map((x) => ({ name: x.id, label: x.label, kind: x.type, default: x.def, rememberRecent: x.remember })),
+      windows: st.windows.map((w) => ({
+        app: w.app,
+        launch: w.kind === 'Program' ? { exe: w.exe, args: w.args, startIn: w.cwd || null }
+          : w.kind === 'Store app' ? { appUserModelId: w.exe, args: w.args }
+          : null,
+        skip: w.kind === 'Skip' || undefined,
+        match: { titleContains: w.match || null },
+        ifAlreadyOpen: w.ifOpen,
+        waitSeconds: w.timeout,
+        placement: w.place,
+      })),
+    };
+
+    const n = st.windows.length;
+    return {
+      name: st.name,
+      setName: (e) => this.setState({ name: e.target.value }),
+      subtitle: n + ' windows · saved 15 Oct, 09:20' + (st.inputs.length ? ' · asks for ' + st.inputs.length + (st.inputs.length === 1 ? ' value' : ' values') : ''),
+      testOpen: st.testOpen,
+      testStyle: st.testOpen ? 'border-color: #7DD3FC; color: #7DD3FC' : '',
+      toggleTest: () => this.setState({ testOpen: !st.testOpen }),
+      hasInputs: st.inputs.length > 0,
+      noInputs: st.inputs.length === 0,
+      hasSuggestion: !!sug,
+      suggestion: sug || { path: '', where: '' },
+      acceptSuggestion: () => this.setState(this.accept(st, sug)),
+      dismissSuggestion: () => sug && this.setState({ dismissed: [...st.dismissed, sug.path] }),
+      addInput: () => {
+        const key = 'i' + st.nextInput;
+        this.setState({
+          nextInput: st.nextInput + 1,
+          openInput: key,
+          inputs: [...st.inputs, { key, id: 'input' + st.nextInput, label: 'New input', type: 'Text', def: '', value: '', remember: false }],
+        });
+      },
+      inputChips,
+      hasEditing: !!ed,
+      ed: ed || {},
+      windowRows,
+      storedOpen: st.storedOpen,
+      storedLabel: st.storedOpen ? 'Hide what’s stored' : 'Show what’s stored (saved-flocks.json)',
+      toggleStored: () => this.setState({ storedOpen: !st.storedOpen }),
+      storedJson: JSON.stringify(stored, null, 2),
+    };
+  }
+}
+</script>
+</body>
+</html>
