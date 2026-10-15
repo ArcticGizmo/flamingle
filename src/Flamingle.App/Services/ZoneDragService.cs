@@ -96,9 +96,13 @@ internal sealed class ZoneDragService : IDisposable
         DispatcherTimer.RunOnce(() => { if (_drag is null) HideOverlays(); }, TimeSpan.FromMilliseconds(1400));
     }
 
+    /// <summary>True while drags should be left alone (design mode: a window dragged onto a zone there is being added
+    /// to a saved flock, not snapped).</summary>
+    public Func<bool>? Paused { get; set; }
+
     private void OnMoveSizeStarted(IntPtr hwnd)
     {
-        if (!_settings().ZonesEnabled || !WindowQuery.IsCandidate(hwnd)) return;
+        if (!_settings().ZonesEnabled || Paused?.Invoke() == true || !WindowQuery.IsCandidate(hwnd)) return;
         if (WindowQuery.WindowRect(hwnd) is not { } rect) return;
 
         HideOverlays();

@@ -263,14 +263,30 @@ internal sealed class ZoneContainerService : IDisposable
 
     /// <summary>A window was dropped into <paramref name="zones"/> on <paramref name="monitor"/>.</summary>
     /// <param name="before">The window's rect before this drag (null if it was maximised).</param>
-    public void Snapped(IntPtr hwnd, MonitorInfo monitor, IReadOnlyList<int> zones, PixelRect? before)
+    /// <param name="joinZoneFlock">False: it goes into the zones without joining the monitor's zone flock (a loaded
+    /// flock that's to be a flock of its own).</param>
+    public void Snapped(IntPtr hwnd, MonitorInfo monitor, IReadOnlyList<int> zones, PixelRect? before, bool joinZoneFlock = true)
     {
         // Moving between zones keeps the size from before the *first* snap.
         var previous = RemoveSlot(hwnd);
         Slot(GetOrCreate(monitor), hwnd, zones, previous is not null ? previous.Restore : before);
-        Slotted?.Invoke(hwnd, monitor);
+        if (joinZoneFlock) Slotted?.Invoke(hwnd, monitor);
         Save();
         SyncHandles();
+    }
+
+    /// <summary>Put a window into <paramref name="zones"/> on <paramref name="monitor"/> from code (a relaunched
+    /// window going back into its layout): sized to them now, again once Windows has settled, and slotted.</summary>
+    public void SnapInto(IntPtr hwnd, MonitorInfo monitor, IReadOnlyList<int> zones, bool joinZoneFlock = true)
+    {
+        var all = ZonesFor(monitor);
+        if (all.Count == 0) return;
+        var valid = zones.Select(i => Math.Clamp(i, 0, all.Count - 1)).Distinct().ToList();
+        var target = ZoneMath.Bounds(all, valid.Count > 0 ? valid : [0]);
+        var before = Win32.IsZoomed(hwnd) ? null : WindowQuery.WindowRect(hwnd);
+        WindowPlacer.Fit(hwnd, target);
+        DispatcherTimer.RunOnce(() => WindowPlacer.Fit(hwnd, target), TimeSpan.FromMilliseconds(150));
+        Snapped(hwnd, monitor, valid, before, joinZoneFlock);
     }
 
     /// <summary>A window was dragged out of its zones and dropped at <paramref name="cursorX"/>: it leaves the

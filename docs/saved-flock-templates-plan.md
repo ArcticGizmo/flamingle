@@ -59,7 +59,16 @@ without asking; computed inputs show as ⟨name⟩ in Test load until phase D ru
 - **Test load** side panel from `LoadPlan`, with "Show what's stored". Nothing launches.
 - `SavedFlockService.Update` persists edits; renaming the flock re-keys the "same name replaces" rule.
 
-### C. Relaunch (steps 2–3 of the original plan)
+### C. Relaunch (steps 2–3 of the original plan) — *first pass done* (`Services/RelaunchService.cs`)
+
+Matching, settling and monitor remapping are in Core (`WindowMatcher`, `WindowSettler`, `PlacementMapper`). Loading
+from a layout panel moves a single-monitor flock onto that panel's monitor. If the loaded windows make up a whole
+zone flock, that zone flock takes the saved name instead of a new flock being made. ▶ Load in Settings asks which
+monitor to load onto (a "Load here" card on every screen; skipped with one monitor or a flock spread over several).
+The zone flock already in the zones a load fills is minimised first (it stays its own flock), and the loaded windows
+form a flock of their own instead of joining it. Not yet: "Ask" behaves like "Use
+it"; inputs load with their defaults (computed ones blank) until phase D's prompt.
+
 
 - `RelaunchService`: for each planned window — Skip; find an open window matching exe/AUMID (+ title); per
   `IfAlreadyOpen` use it or start another; start it (`Process.Start` with args and working directory, or

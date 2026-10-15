@@ -88,6 +88,123 @@ internal static class SettingsUi
         };
     }
 
+    // ---- Lists (the Flocks page and the saved-flock designer) ----
+
+    /// <summary>Segoe Fluent Icons on Windows 11, MDL2 Assets on Windows 10 — the same code points.</summary>
+    public static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+
+    public static readonly IBrush WarnBrush = new SolidColorBrush(Color.Parse("#FDBA74"));
+    public static readonly IBrush WarnBg = new SolidColorBrush(Color.Parse("#3B2A17"));
+
+    /// <summary>The icons the lists use.</summary>
+    public static class Glyphs
+    {
+        public const string ChevronRight = "";
+        public const string ChevronDown = "";
+        public const string MinimiseRestore = "";
+        public const string Save = "";
+        public const string Dissolve = "";
+        public const string Load = "";
+        public const string Edit = "";
+        public const string Delete = "";
+    }
+
+    /// <summary>A borderless icon button; <paramref name="tip"/> is its tooltip and its accessible name.</summary>
+    public static Button IconButton(string glyph, string tip, Action onClick, IBrush? foreground = null)
+    {
+        var button = new Button
+        {
+            Content = new TextBlock { Text = glyph, FontFamily = IconFont, FontSize = 14 },
+            Width = 34, Height = 34, Padding = new Thickness(0), Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(6), Foreground = foreground ?? Palette.Fg,
+            HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
+            Cursor = new Cursor(StandardCursorType.Hand),
+        };
+        ToolTip.SetTip(button, tip);
+        Avalonia.Automation.AutomationProperties.SetName(button, tip);
+        button.Click += (_, _) => onClick();
+        return button;
+    }
+
+    /// <summary>A small rounded label, e.g. "edited" or a warning.</summary>
+    public static Border Pill(string text, IBrush background, IBrush foreground) => new()
+    {
+        Background = background, CornerRadius = new CornerRadius(9), Padding = new Thickness(7, 1),
+        VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+        Child = new TextBlock { Text = text, FontSize = 11, Foreground = foreground },
+    };
+
+    private static readonly string[] Tints = ["#7DD3FC", "#A7F3D0", "#FDBA74", "#C4B5FD", "#F9A8D4", "#FDE68A"];
+
+    /// <summary>A coloured square with a number or letter — a list row's marker.</summary>
+    public static Border Tile(string text, int colour) => new()
+    {
+        Width = 30, Height = 30, CornerRadius = new CornerRadius(7), VerticalAlignment = VerticalAlignment.Center,
+        Background = new SolidColorBrush(Color.Parse(Tints[Math.Abs(colour) % Tints.Length])),
+        Child = new TextBlock
+        {
+            Text = text, Foreground = Palette.OnAccent, FontWeight = FontWeight.SemiBold, FontSize = 13,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+        },
+    };
+
+    /// <summary>Rows in one rounded box, divided by lines.</summary>
+    public static Border List(IEnumerable<Control> rows)
+    {
+        var panel = new StackPanel();
+        foreach (var row in rows)
+        {
+            if (panel.Children.Count > 0) panel.Children.Add(new Border { Height = 1, Background = Palette.Line });
+            panel.Children.Add(row);
+        }
+        return new Border { Background = Palette.Row, CornerRadius = new CornerRadius(10), ClipToBounds = true, Child = panel };
+    }
+
+    /// <summary>
+    /// A list row that opens: a click target (marker, title, meta line, chevron) with its actions beside it, and — when
+    /// open — <paramref name="details"/> beneath.
+    /// </summary>
+    public static Control ExpandingRow(Control marker, Control title, Control meta, bool open, Action toggle,
+        IEnumerable<Control> actions, Func<Control>? details)
+    {
+        var info = new StackPanel { Spacing = 2, Margin = new Thickness(12, 0), VerticalAlignment = VerticalAlignment.Center, Children = { title, meta } };
+        var chevron = new TextBlock
+        {
+            Text = open ? Glyphs.ChevronDown : Glyphs.ChevronRight, FontFamily = IconFont, FontSize = 11,
+            Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Center,
+        };
+        var head = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+        head.Children.Add(marker);
+        Grid.SetColumn(info, 1);
+        head.Children.Add(info);
+        Grid.SetColumn(chevron, 2);
+        head.Children.Add(chevron);
+
+        var button = new Button
+        {
+            Content = head, Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(0),
+            Padding = new Thickness(14, 11, 8, 11), HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, Foreground = Palette.Fg,
+        };
+        button.Click += (_, _) => toggle();
+
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+        foreach (var a in actions) bar.Children.Add(a);
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        row.Children.Add(button);
+        Grid.SetColumn(bar, 1);
+        row.Children.Add(bar);
+
+        var stack = new StackPanel { Children = { row } };
+        if (open && details is not null)
+        {
+            var body = details();
+            body.Margin = new Thickness(56, 0, 16, 14);
+            stack.Children.Add(body);
+        }
+        return stack;
+    }
+
     /// <summary>A pill switch that calls <paramref name="onChanged"/> with the new value when clicked.</summary>
     public static PillToggle Toggle(bool on, Action<bool> onChanged)
     {

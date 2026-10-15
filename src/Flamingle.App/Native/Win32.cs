@@ -7,6 +7,7 @@ namespace Flamingle.App.Native;
 internal static class Win32
 {
     // ShowWindow commands
+    public const int SW_MAXIMIZE = 3;
     public const int SW_MINIMIZE = 6;
     public const int SW_RESTORE = 9;
 

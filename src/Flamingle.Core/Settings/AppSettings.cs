@@ -103,6 +103,11 @@ public sealed record AppSettings
     /// <see cref="TaskbarPreviews"/> — the preview request is how Flamingle knows the button is hovered.</summary>
     public bool TaskbarHoverOutline { get; init; } = true;
 
+    /// <summary>Experimental: editing a saved flock opens design mode — its layout drawn over the real screens, where
+    /// you click a zone to choose what starts there, with a floating panel for whatever's selected. Off: the form in
+    /// Settings › Flocks.</summary>
+    public bool DesignModeEditing { get; init; } = true;
+
     public string LayoutIdFor(string deviceName)
         => ZoneLayouts.TryGetValue(deviceName, out var id) ? id : Zones.ZoneLayout.DefaultId;
 

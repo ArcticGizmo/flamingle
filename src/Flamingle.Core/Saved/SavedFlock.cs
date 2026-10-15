@@ -171,8 +171,20 @@ public sealed record SavedFlocks(List<SavedFlock> Flocks)
         return new SavedFlocks(list);
     }
 
-    /// <summary>Replace the saved flock with the same id (an edit from the designer).</summary>
-    public SavedFlocks Update(SavedFlock flock) => new(Flocks.Select(f => f.Id == flock.Id ? flock : f).ToList());
+    /// <summary>Store an edit from the designer: replace the saved flock with the same id, or add it if it's new.</summary>
+    public SavedFlocks Update(SavedFlock flock)
+        => Flocks.Any(f => f.Id == flock.Id)
+            ? new(Flocks.Select(f => f.Id == flock.Id ? flock : f).ToList())
+            : new([.. Flocks, flock]);
+
+    /// <summary><paramref name="name"/>, or "name 2", "name 3"… if a saved flock already has it.</summary>
+    public string FreeName(string name)
+    {
+        var candidate = name;
+        for (var n = 2; Flocks.Any(f => string.Equals(f.Name, candidate, StringComparison.OrdinalIgnoreCase)); n++)
+            candidate = $"{name} {n}";
+        return candidate;
+    }
 
     public SavedFlocks Remove(Guid id) => new(Flocks.Where(f => f.Id != id).ToList());
 }

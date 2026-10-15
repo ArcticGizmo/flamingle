@@ -29,6 +29,13 @@ internal sealed class SettingsHost
     public required Action<Flock> SaveFlock { get; init; }
     public required Action<Guid> DeleteSavedFlock { get; init; }
     public required Action<SavedFlock> UpdateSavedFlock { get; init; }
+
+    /// <summary>Open design mode on a saved flock (is it new?).</summary>
+    public required Action<SavedFlock, bool> DesignSavedFlock { get; init; }
+    public required Action<SavedFlock> LoadSavedFlock { get; init; }
+    public required Func<string, string> FreeSavedFlockName { get; init; }
+    public required Func<IReadOnlyList<WindowChoice>> OpenWindows { get; init; }
+    public required Func<long, int, SavedWindow?> CaptureWindow { get; init; }
     public required Func<MonitorInfo, string> LayoutIdFor { get; init; }
     public required Action<MonitorInfo, string> ApplyLayout { get; init; }
     public required Action<MonitorInfo> ShowZones { get; init; }
@@ -128,12 +135,25 @@ internal sealed class SettingsWindow : Window
         }
     }
 
-    /// <summary>Open the designer for a saved flock, in place of the Flocks page.</summary>
-    private void ShowEditor(SavedFlock flock)
+    /// <summary>Edit a saved flock (or a new, not yet stored one): in design mode on screen, or — with that off — in
+    /// the form, in place of the Flocks page.</summary>
+    private void ShowEditor(SavedFlock flock, bool isNew = false)
+    {
+        if (S.DesignModeEditing)
+        {
+            _host.DesignSavedFlock(flock, isNew);
+            return;
+        }
+        ShowForm(flock, isNew);
+    }
+
+    /// <summary>The form editor for a saved flock (also where design mode's "Edit as a form" lands).</summary>
+    public void ShowForm(SavedFlock flock, bool isNew = false)
     {
         Select("flocks");
         foreach (var (page, _) in _pages.Values) page.IsVisible = false;
-        _editor = new SavedFlockEditor(flock, _host.UpdateSavedFlock, () => Select("flocks"));
+        _editor = new SavedFlockEditor(flock, isNew, _host.UpdateSavedFlock, () => Select("flocks"),
+            _host.OpenWindows, _host.CaptureWindow);
         _editorPage.Content = new Border
         {
             Margin = PageMargin, MaxWidth = PageMaxWidth, HorizontalAlignment = HorizontalAlignment.Stretch, Child = _editor,
@@ -195,132 +215,191 @@ internal sealed class SettingsWindow : Window
 
     // ---- Flocks ----
 
+    // Which rows are opened up (kept across rebuilds).
+    private readonly HashSet<Guid> _openFlocks = [];
+    private readonly HashSet<Guid> _openSaved = [];
+
+    /// <summary>
+    /// Two compact lists, styled like the saved-flock designer: the flocks open now and the saved ones. A row shows
+    /// its name and a one-line summary with its actions as icons; click it to see its windows (and, for an open
+    /// flock, rename it).
+    /// </summary>
     private void BuildFlocks(StackPanel page)
     {
-        page.Children.Add(PageTitle("Flocks"));
-        page.Children.Add(BodyText(
-            "Windows that minimise and restore together. Pick a flock by hand, or drop windows into zones and each " +
-            "monitor's layout becomes a zone flock."));
-        page.Children.Add(ButtonRow(FlatButton("New flock…", _host.NewFlock)));
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        header.Children.Add(PageTitle("Flocks"));
+        var newFlock = FlatButton("New flock…", _host.NewFlock);
+        newFlock.VerticalAlignment = VerticalAlignment.Top;
+        Grid.SetColumn(newFlock, 1);
+        header.Children.Add(newFlock);
+        page.Children.Add(header);
+        page.Children.Add(BodyText("Windows that minimise and restore together. Save one to bring it back later — apps and all."));
 
         var groups = _host.Registry.Groups;
-        if (groups.Count == 0)
-            page.Children.Add(BodyText($"No flocks yet. Press {Hotkey(S.NewFlockHotkey)} in any window to start one."));
-
-        foreach (var group in groups)
-            page.Children.Add(FlockCard(group));
+        page.Children.Add(ListTitle("Open now", groups.Count));
+        page.Children.Add(groups.Count == 0
+            ? BodyText($"None open. Press {Hotkey(S.NewFlockHotkey)} in any window to start one, or drop windows into zones.")
+            : List(groups.Select(FlockRow)));
 
         var saved = _host.SavedFlocks();
-        page.Children.Add(SectionTitle("Saved flocks"));
-        page.Children.Add(BodyText(
-            "Snapshots of a flock's apps and where their windows were, for relaunching later (coming next). Save a " +
-            "flock above; saving one with the same name replaces it."));
-        foreach (var flock in saved)
-            page.Children.Add(SavedFlockCard(flock));
+        page.Children.Add(ListTitle("Saved", saved.Count, FlatButton("New saved flock…", NewSavedFlock)));
+        page.Children.Add(saved.Count == 0
+            ? BodyText("Nothing saved yet. Save an open flock, or start a new one from the windows you have open.")
+            : List(saved.Select(SavedRow)));
     }
 
-    private Control FlockCard(Flock group)
+    /// <summary>Start a saved flock from scratch in the designer — stored only once its changes are saved.</summary>
+    private void NewSavedFlock()
+        => ShowEditor(new SavedFlock(Guid.NewGuid(), _host.FreeSavedFlockName("New flock"), DateTimeOffset.Now, []), isNew: true);
+
+    private static Control ListTitle(string text, int count, Control? action = null)
+    {
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Bottom };
+        title.Children.Add(new TextBlock { Text = text, FontSize = 15, FontWeight = FontWeight.SemiBold, Foreground = Palette.Title });
+        if (count > 0)
+            title.Children.Add(new TextBlock { Text = count.ToString(), FontSize = 13, Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Bottom });
+
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 22, 0, 8) };
+        row.Children.Add(title);
+        if (action is not null)
+        {
+            Grid.SetColumn(action, 1);
+            row.Children.Add(action);
+        }
+        return row;
+    }
+
+    private Control FlockRow(Flock group)
     {
         var slot = _host.Registry.SlotOf(group);
-        var kind = group.ZoneMonitor is { } device ? $"Zone flock · {device.TrimStart('\\', '.')}" : "Picked by hand";
+        var open = _openFlocks.Contains(group.Id);
+        var kind = group.ZoneMonitor is { } device ? $"Zones · {device.TrimStart('\\', '.')}" : "Picked by hand";
+        var meta = $"{kind} · {Count(group.Members.Count, "window")}" + (SlotHotkey(slot) is { } hk ? $" · {hk}" : "");
 
-        var members = new StackPanel { Spacing = 2, Margin = new Thickness(0, 6, 0, 0) };
-        foreach (var m in group.Members)
-        {
-            members.Children.Add(new TextBlock
+        return ExpandingRow(
+            Tile(slot.ToString(), slot - 1),
+            RowTitle(group.Name),
+            RowMeta(meta),
+            open,
+            () => ToggleOpen(_openFlocks, group.Id),
+            [
+                IconButton(Glyphs.MinimiseRestore, "Minimise / restore", () => _host.ToggleFlock(group)),
+                IconButton(Glyphs.Save, "Save — to start its apps and put it back later", () => _host.SaveFlock(group)),
+                IconButton(Glyphs.Dissolve, "Dissolve — its windows stay open", () => _host.Registry.Dissolve(group)),
+            ],
+            () =>
             {
-                Text = string.IsNullOrEmpty(m.ProcessName) ? m.Title : $"{m.ProcessName} — {m.Title}",
-                Foreground = Palette.Fg, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis,
+                var body = new StackPanel { Spacing = 10 };
+                var members = new StackPanel { Spacing = 3 };
+                foreach (var m in group.Members)
+                    members.Children.Add(WindowLine(string.IsNullOrEmpty(m.ProcessName) ? "Window" : m.ProcessName, m.Title));
+                body.Children.Add(members);
+                body.Children.Add(RenameField(group));
+                return body;
             });
-        }
-
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        header.Children.Add(new StackPanel
-        {
-            Spacing = 2,
-            Children =
-            {
-                new TextBlock
-                {
-                    Text = $"{slot}. {group.Name}", FontSize = 14, FontWeight = FontWeight.SemiBold, Foreground = Palette.Title,
-                },
-                new TextBlock
-                {
-                    Text = $"{kind} · {group.Members.Count} window{(group.Members.Count == 1 ? "" : "s")}"
-                           + (SlotHotkey(slot) is { } hk ? $" · {hk}" : ""),
-                    FontSize = 12, Foreground = Palette.Muted,
-                },
-            },
-        });
-        var actions = ButtonRow(
-            FlatButton("Minimise / restore", () => _host.ToggleFlock(group)),
-            FlatButton("Save", () => _host.SaveFlock(group)),
-            FlatButton("Dissolve", () => _host.Registry.Dissolve(group)));
-        return Card(header, actions, members);
     }
 
-    private Control SavedFlockCard(SavedFlock flock)
+    /// <summary>Rename an open flock: applied on Enter or leaving the box. A renamed zone flock keeps its name.</summary>
+    private Control RenameField(Flock group)
     {
-        var windows = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) };
-        foreach (var w in flock.Windows.OrderBy(w => w.ZIndex))
+        var box = new TextBox { Text = group.Name, FontSize = 13, Width = 280 };
+        void Commit()
         {
-            var recipe = $"{Place(w)} · {Recipe(w)}";
-            var detail = new TextBlock
-            {
-                Text = recipe, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis,
-                Foreground = Warning(w) ? Palette.AccentBrush : Palette.Muted,
-            };
-            ToolTip.SetTip(detail, recipe);
-            windows.Children.Add(new StackPanel
-            {
-                Spacing = 1,
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = $"{w.ProcessName} — {w.Title}", Foreground = Palette.Fg, FontSize = 12,
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                    },
-                    detail,
-                },
-            });
+            if (!string.IsNullOrWhiteSpace(box.Text) && box.Text.Trim() != group.Name) _host.Registry.Rename(group, box.Text);
         }
-
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        header.Children.Add(new StackPanel
+        box.LostFocus += (_, _) => Commit();
+        box.KeyDown += (_, e) =>
         {
-            Spacing = 2,
-            Children =
-            {
-                new TextBlock { Text = flock.Name, FontSize = 14, FontWeight = FontWeight.SemiBold, Foreground = Palette.Title },
-                new TextBlock
-                {
-                    Text = $"{flock.Windows.Count} window{(flock.Windows.Count == 1 ? "" : "s")} · saved {flock.SavedAt.LocalDateTime:d MMM HH:mm}",
-                    FontSize = 12, Foreground = Palette.Muted,
-                },
-            },
-        });
-        return Card(header, ButtonRow(
-            FlatButton("Edit…", () => ShowEditor(flock)),
-            FlatButton("Delete", () => _host.DeleteSavedFlock(flock.Id))), windows);
-    }
-
-    private static Border Card(Grid header, StackPanel actions, Control body)
-    {
-        actions.Margin = default;
-        actions.VerticalAlignment = VerticalAlignment.Top;
-        Grid.SetColumn(actions, 1);
-        header.Children.Add(actions);
-
-        return new Border
-        {
-            Background = Palette.Row,
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(14, 12),
-            Margin = new Thickness(0, 10, 0, 0),
-            Child = new StackPanel { Children = { header, body } },
+            if (e.Key != Key.Enter) return;
+            Commit();
+            e.Handled = true;
         };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        row.Children.Add(new TextBlock { Text = "Name", FontSize = 12, Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(box);
+        return row;
     }
+
+    private Control SavedRow(SavedFlock flock, int index)
+    {
+        var open = _openSaved.Contains(flock.Id);
+        var asks = flock.InputList.Count;
+        var meta = new WrapPanel();
+        meta.Children.Add(RowMeta(Count(flock.Windows.Count, "window")
+                                  + (asks > 0 ? $" · asks for {Count(asks, "value")}" : "")
+                                  + $" · saved {flock.SavedAt.LocalDateTime:d MMM, HH:mm}", trailing: 8));
+        if (_host.Registry.Groups.Any(g => string.Equals(g.Name, flock.Name, StringComparison.OrdinalIgnoreCase)))
+            meta.Children.Add(Pill("open", Palette.ButtonBg, Palette.Fg));
+        if (flock.Windows.Any(w => w.IsChanged))
+            meta.Children.Add(Pill("edited", Palette.ButtonBg, Palette.Fg));
+        var warnings = flock.Windows.Count(Warning);
+        if (warnings > 0)
+            meta.Children.Add(Pill(warnings == 1 ? "1 may not relaunch" : $"{warnings} may not relaunch", WarnBg, WarnBrush));
+
+        var initial = flock.Name.Trim() is { Length: > 0 } n ? n[..1].ToUpperInvariant() : "?";
+        return ExpandingRow(
+            Tile(initial, index + 2),
+            RowTitle(flock.Name),
+            meta,
+            open,
+            () => ToggleOpen(_openSaved, flock.Id),
+            [
+                IconButton(Glyphs.Load, "Load — start its apps and put its windows back", () => _host.LoadSavedFlock(flock)),
+                IconButton(Glyphs.Edit, "Edit what it starts and asks for", () => ShowEditor(flock)),
+                IconButton(Glyphs.Delete, "Delete", () => _host.DeleteSavedFlock(flock.Id)),
+            ],
+            () =>
+            {
+                var windows = new StackPanel { Spacing = 8 };
+                foreach (var w in flock.Windows.OrderBy(w => w.ZIndex))
+                {
+                    var line = new StackPanel { Spacing = 1 };
+                    line.Children.Add(WindowLine(w.ProcessName, w.Title));
+                    var detail = $"{Place(w)} · {Recipe(w)}";
+                    var text = new TextBlock
+                    {
+                        Text = detail, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis,
+                        Foreground = Warning(w) ? WarnBrush : Palette.Muted,
+                    };
+                    ToolTip.SetTip(text, detail);
+                    line.Children.Add(text);
+                    windows.Children.Add(line);
+                }
+                return windows;
+            });
+    }
+
+    private void ToggleOpen(HashSet<Guid> open, Guid id)
+    {
+        if (!open.Remove(id)) open.Add(id);
+        RefreshFlocks();
+    }
+
+    private static TextBlock RowTitle(string text) => new()
+    {
+        Text = text, FontSize = 14, FontWeight = FontWeight.SemiBold, Foreground = Palette.Title,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+    };
+
+    private static TextBlock RowMeta(string text, double trailing = 0) => new()
+    {
+        Text = text, FontSize = 12, Foreground = Palette.Muted, TextTrimming = TextTrimming.CharacterEllipsis,
+        VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, trailing, 0),
+    };
+
+    /// <summary>"App — title" for a window in an opened row.</summary>
+    private static TextBlock WindowLine(string app, string title)
+    {
+        var line = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis };
+        line.Inlines =
+        [
+            new Avalonia.Controls.Documents.Run(app) { Foreground = Palette.Title, FontWeight = FontWeight.Medium },
+            new Avalonia.Controls.Documents.Run("  " + title) { Foreground = Palette.Fg },
+        ];
+        return line;
+    }
+
+    private static string Count(int n, string noun) => $"{n} {noun}{(n == 1 ? "" : "s")}";
 
     /// <summary>Where a saved window goes back to, e.g. <c>DISPLAY1 · zones 1+2 of 3 columns</c>.</summary>
     private static string Place(SavedWindow w) => w.PlaceText() + (w.Placement.Minimised ? " (minimised)" : "");
@@ -553,6 +632,11 @@ internal sealed class SettingsWindow : Window
         page.Children.Add(Row("Resizing a zoned window moves its neighbours",
             "Dragging an inner edge moves that split, like Windows' Snap Groups.",
             Toggle(s.LinkedResize, on => Update(x => x with { LinkedResize = on }))));
+
+        page.Children.Add(Row("Design saved flocks on screen",
+            "Editing a saved flock draws its layout over your screens: click a zone to choose what starts there, with " +
+            "a floating panel for whatever you select. Off: the form here in Settings.",
+            Toggle(s.DesignModeEditing, on => Update(x => x with { DesignModeEditing = on }))));
     }
 
     // ---- Shortcuts ----

@@ -53,8 +53,10 @@ A lightweight tray app that lets you treat a set of windows as a single parent "
   title, monitor + rect, zone, Z-order, desktop), shown in Settings → Flocks so we can judge how much real apps
   give away; (2) re-attach to open windows and place them; (3) launch what's missing and wait for its windows
   (matched by exe/AUMID, not PID — single-instance apps hand off); (4) zones, Z-order, desktops.
-- Loading a saved flock from a layout's panel (the Flock row's load button) currently only switches the layout to
-  the one it was saved in; it will find / start the apps once steps 2–3 exist.
+- Loading a saved flock (the layout panel's load button, or Load in Settings → Flocks) finds or starts its apps
+  and puts their windows back (see `docs/saved-flock-templates-plan.md`, phase C).
+- **Design mode (experimental, toggle):** editing a saved flock draws its layout over the real screens — click a zone
+  to choose what starts there, with a floating panel for the selection (see `docs/flock-design-mode.md`).
 - **Parameterised flocks (wanted):** a saved flock can declare variables (e.g. a git worktree path, a branch, a
   project folder) that its windows' launch recipes use — in arguments, working directories, even titles to match
   — so one saved flock can be loaded for different values (open the editor, terminal and browser for *this*

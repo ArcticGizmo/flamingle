@@ -328,6 +328,19 @@ public sealed class SavedFlockTemplateTests : IDisposable
         Assert.Equal(["Renamed", "Other"], updated.Flocks.Select(f => f.Name));
     }
 
+    [Fact]
+    public void A_new_flock_is_added_by_update_and_gets_a_free_name()
+    {
+        var saved = SavedFlocks.Empty.Save(Flock([Window("A")]) with { Name = "New flock" }, out _);
+        Assert.Equal("new flock 2", saved.FreeName("new flock"));   // taken whatever the case; keeps the asked-for case
+        Assert.Equal("Fresh", saved.FreeName("Fresh"));
+
+        var fresh = new SavedFlock(Guid.NewGuid(), saved.FreeName("New flock"), DateTimeOffset.UnixEpoch, []);
+        var added = saved.Update(fresh);
+        Assert.Equal(["New flock", "New flock 2"], added.Flocks.Select(f => f.Name));
+        Assert.Equal("It doesn't start anything yet — add the windows it should open.", Assert.Single(FlockProblems.Find(fresh)).Message);
+    }
+
     // ---- Load plan ----
 
     [Fact]

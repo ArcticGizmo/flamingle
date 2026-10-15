@@ -11,6 +11,7 @@ using Flamingle.Core;
 using Flamingle.Core.Geometry;
 using Flamingle.Core.Grouping;
 using Flamingle.Core.Persistence;
+using Flamingle.Core.Saved;
 using Flamingle.Core.Settings;
 using Flamingle.Core.Zones;
 
@@ -27,6 +28,8 @@ public partial class App : Application
     private ZoneDragService? _zones;
     private ZoneContainerService? _containers;
     private SavedFlockService? _saved;
+    private RelaunchService? _relaunch;
+    private FlockDesignService? _design;
     private TaskbarService? _taskbar;
     private HotkeyService? _hotkeys;
     private TrayIcon? _tray;
@@ -109,6 +112,21 @@ public partial class App : Application
                 _containers.RefreshPanels();
             };
 
+            _relaunch = new RelaunchService(_containers, _controller, ApplyLayout, FormFlock);
+            _relaunch.Notice += ToastWindow.Show;
+
+            var saved = _saved;
+            _design = new FlockDesignService(_containers, _hooks, saved.Update, OpenWindows,
+                (handle, z) => saved.CaptureWindow((IntPtr)handle, z),
+                (flock, isNew) =>
+                {
+                    ShowSettings("flocks");
+                    _settingsWindow?.ShowForm(flock, isNew);
+                });
+            _design.Notice += ToastWindow.Show;
+            // A window dragged in design mode is being added to a saved flock, not snapped into a zone.
+            _zones.Paused = () => _design.IsOpen;
+
             _taskbar = new TaskbarService(_registry, _controller, _hooks, () => _settings);
             _taskbar.Sync();
 
@@ -118,7 +136,10 @@ public partial class App : Application
             _hotkeys = new HotkeyService();
             _hotkeys.NewFlockRequested += ShowPicker;
             _hotkeys.ToggleRequested += () => _controller.ToggleFocused();
-            _hotkeys.LayoutMenuRequested += () => _containers.ToggleEditAtCursor();
+            _hotkeys.LayoutMenuRequested += () =>
+            {
+                if (_design?.IsOpen != true) _containers.ToggleEditAtCursor();
+            };
             _hotkeys.SlotRequested += slot => _controller.ToggleSlot(slot);
             ApplyHotkeys();
 
@@ -128,6 +149,7 @@ public partial class App : Application
             {
                 _hotkeys?.Dispose();
                 _zones?.Dispose();
+                _relaunch?.Dispose();
                 _containers?.Dispose();
                 _taskbar?.Dispose();
                 _hooks.Dispose();
@@ -212,6 +234,11 @@ public partial class App : Application
             SaveFlock = group => _saved?.Save(group),
             DeleteSavedFlock = id => _saved?.Delete(id),
             UpdateSavedFlock = flock => _saved?.Update(flock),
+            DesignSavedFlock = (flock, isNew) => _design?.Open(flock, isNew),
+            LoadSavedFlock = AskWhereAndLoad,
+            FreeSavedFlockName = name => _saved?.FreeName(name) ?? name,
+            OpenWindows = OpenWindows,
+            CaptureWindow = (handle, z) => _saved?.CaptureWindow((IntPtr)handle, z),
             LayoutIdFor = monitor => ZoneLayout.ById(_containers?.LayoutIdFor(monitor) ?? _settings.LayoutIdFor(monitor.DeviceName)).Id,
             ApplyLayout = ApplyLayout,
             ShowZones = monitor => _zones?.Preview(monitor),
@@ -230,20 +257,64 @@ public partial class App : Application
         window.Show();
     }
 
+    /// <summary>The windows open now, for the designer to add one from.</summary>
+    private static IReadOnlyList<WindowChoice> OpenWindows() => WindowQuery.Candidates()
+        .Select(w => new WindowChoice(w.Handle, string.IsNullOrEmpty(w.ProcessName) ? "Window" : w.ProcessName, w.Title))
+        .ToList();
+
     /// <summary>
-    /// A saved flock picked in a layout's panel. For now this only switches the layout to the one the flock was saved
-    /// in — finding or starting its apps and placing their windows is the next step of save and relaunch.
+    /// ▶ in Settings: ask which monitor to load onto (every screen offers "Load here", the one it was saved on marked),
+    /// then load there. Only asked when there's a choice to make — more than one monitor, and the flock all on one.
     /// </summary>
+    private void AskWhereAndLoad(SavedFlock flock)
+    {
+        var monitors = Monitors.All();
+        if (monitors.Count < 2 || flock.Windows.Count == 0 || flock.Windows.Select(w => w.Placement.Monitor).Distinct().Count() != 1)
+        {
+            Relaunch(flock, null);
+            return;
+        }
+        var first = flock.Windows[0].Placement;
+        var savedOn = PlacementMapper.Monitor(first.Monitor, first.WorkArea, monitors).DeviceName;
+        LoadTargetWindow.Ask(flock.Name, monitors, savedOn, ZoneOccupant, m => Relaunch(flock, m.DeviceName));
+    }
+
+    /// <summary>What's in a monitor's zones now — its zone flock on the desktop being looked at — or null.</summary>
+    private string? ZoneOccupant(string device)
+        => _controller?.CurrentZoneFlock(device) is { Members.Count: > 0 } g
+            ? $"{g.Members.Count} window{(g.Members.Count == 1 ? "" : "s")} in \"{g.Name}\""
+            : null;
+
+    /// <summary>A saved flock picked in a layout's panel: load it onto that layout's monitor.</summary>
     private void LoadSavedFlock(string deviceName, Guid id)
     {
-        if (_saved?.All.FirstOrDefault(f => f.Id == id) is not { } flock) return;
-        var layoutId = flock.MainZoneLayout();
-        if (layoutId is not null && Monitors.All().FirstOrDefault(m => m.DeviceName == deviceName) is { } monitor)
-            ApplyLayout(monitor, layoutId);
+        if (_saved?.All.FirstOrDefault(f => f.Id == id) is { } flock) Relaunch(flock, deviceName);
+    }
 
-        ToastWindow.Show(layoutId is null
-            ? $"\"{flock.Name}\" wasn't saved from a zone layout. Starting its apps isn't built yet."
-            : $"Switched to \"{flock.Name}\"'s layout ({ZoneLayout.ById(layoutId).Name}). Starting its apps isn't built yet.");
+    /// <summary>
+    /// Load a saved flock: find or start its apps and put their windows back. Inputs take their defaults for now —
+    /// the load prompt that asks for them (and works out computed ones) is the next step.
+    /// </summary>
+    private void Relaunch(SavedFlock flock, string? ontoDevice)
+    {
+        if (_relaunch is null) return;
+        var resolved = InputValues.Resolve(flock.InputList, new Dictionary<string, string>(), _ => null);
+        if (resolved.Failed.Count > 0)
+            ToastWindow.Show($"Loading \"{flock.Name}\" with {string.Join(", ", resolved.Failed)} blank — computed inputs aren't worked out yet.");
+        _relaunch.Load(flock, resolved.Values, ontoDevice);
+    }
+
+    /// <summary>The windows a load placed become a flock with the saved flock's name. If they all went into one
+    /// monitor's zones and make up its whole zone flock, that zone flock just takes the name.</summary>
+    private void FormFlock(SavedFlock saved, IReadOnlyList<long> handles)
+    {
+        var groups = handles.Select(_registry.FindByWindow).Distinct().ToList();
+        if (groups is [{ ZoneMonitor: not null } zone] && zone.Members.Count == handles.Count)
+        {
+            _registry.Rename(zone, saved.Name);
+            return;
+        }
+        _registry.Create(saved.Name, handles.Select(h => WindowQuery.ToMember(WindowQuery.Snapshot((IntPtr)h))));
     }
 
     /// <summary>Gaps on/off (from settings): every layout re-flows straight away.</summary>

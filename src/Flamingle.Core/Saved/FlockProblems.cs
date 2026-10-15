@@ -12,6 +12,7 @@ public static class FlockProblems
     public static IReadOnlyList<FlockProblem> Find(SavedFlock flock)
     {
         var problems = new List<FlockProblem>();
+        if (flock.Windows.Count == 0) problems.Add(new("It doesn't start anything yet — add the windows it should open."));
         var inputs = flock.InputList;
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

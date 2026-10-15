@@ -13,9 +13,6 @@ namespace Flamingle.App.Services;
 /// </summary>
 internal sealed class SavedFlockService(string path, ZoneContainerService zones)
 {
-    private const string UwpFrameClass = "ApplicationFrameWindow";
-    private const string UwpCoreClass = "Windows.UI.Core.CoreWindow";
-
     private readonly JsonFile<SavedFlocks> _file = new(path);
     private SavedFlocks _saved = SavedFlocks.Empty;
 
@@ -56,6 +53,13 @@ internal sealed class SavedFlockService(string path, ZoneContainerService zones)
                        + (gaps > 0 ? $" {gaps} may not relaunch cleanly — see Settings → Flocks." : ""));
     }
 
+    /// <summary>Capture one open window as a saved window (the designer's "Add a window").</summary>
+    public SavedWindow? CaptureWindow(IntPtr hwnd, int zIndex)
+        => WindowQuery.IsCandidate(hwnd) ? Capture(hwnd, zIndex, Monitors.All()) : null;
+
+    /// <summary>A free name for a saved flock started from scratch.</summary>
+    public string FreeName(string name) => _saved.FreeName(name);
+
     /// <summary>Store an edit from the designer.</summary>
     public void Update(SavedFlock flock)
     {
@@ -79,7 +83,7 @@ internal sealed class SavedFlockService(string path, ZoneContainerService zones)
     private SavedWindow Capture(IntPtr hwnd, int zIndex, IReadOnlyList<MonitorInfo> monitors)
     {
         var snapshot = WindowQuery.Snapshot(hwnd);
-        var pid = AppProcess(hwnd, snapshot.ProcessId);
+        var pid = WindowIdentity.AppProcess(hwnd, snapshot.ProcessId);
 
         var exe = ProcessInfo.ImagePath(pid);
         var packagedId = ProcessInfo.PackagedAppId(pid);
@@ -98,18 +102,6 @@ internal sealed class SavedFlockService(string path, ZoneContainerService zones)
             Desktop: VirtualDesktops.DesktopOf(hwnd),
             Zone: ZoneOf(hwnd),
             Elevated: ProcessInfo.IsElevated(pid) ?? (commandLine is null));
-    }
-
-    /// <summary>The process that really owns the window. A Store app's window is a frame owned by
-    /// <c>ApplicationFrameHost</c>; the app itself owns the core window inside it. (A minimised Store app's core
-    /// window can be detached from the frame, in which case we're left with the host.)</summary>
-    private static uint AppProcess(IntPtr hwnd, uint pid)
-    {
-        if (WindowQuery.ClassName(hwnd) != UwpFrameClass) return pid;
-        var core = Win32.FindWindowExW(hwnd, IntPtr.Zero, UwpCoreClass, null);
-        if (core == IntPtr.Zero) return pid;
-        Win32.GetWindowThreadProcessId(core, out var appPid);
-        return appPid;
     }
 
     private static SavedPlacement PlacementOf(IntPtr hwnd, Core.Windows.WindowSnapshot snapshot, IReadOnlyList<MonitorInfo> monitors)

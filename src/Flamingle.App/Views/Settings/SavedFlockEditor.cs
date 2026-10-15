@@ -11,6 +11,41 @@ using static Flamingle.App.Views.Settings.SettingsUi;
 
 namespace Flamingle.App.Views.Settings;
 
+/// <summary>An open window offered by the designer's "Add a window".</summary>
+internal sealed record WindowChoice(long Handle, string App, string Title);
+
+/// <summary>What the editor shows: the whole form (Settings › Flocks › Edit), or one part of it — in design mode's
+/// floating panel, which follows what's selected on screen.</summary>
+internal abstract record EditorFocus
+{
+    public sealed record Form : EditorFocus;
+
+    /// <summary>Nothing selected: the flock itself — its inputs and Test load.</summary>
+    public sealed record Flock : EditorFocus;
+
+    /// <summary>A window: what starts there, and where it goes.</summary>
+    public sealed record Window(int Index) : EditorFocus;
+
+    /// <summary>Choose what starts in an empty region (<paramref name="Where"/>), or instead of window
+    /// <paramref name="Replacing"/>.</summary>
+    public sealed record Assign(string Where, int? Replacing = null) : EditorFocus;
+
+    /// <summary>Something design mode builds itself (e.g. a monitor's layout picker), under the panel's header.</summary>
+    public sealed record Custom(string Title, Func<Control> Build) : EditorFocus;
+}
+
+/// <summary>What design mode does with the panel's choices.</summary>
+/// <param name="Placement">Builds "where it goes" for a window.</param>
+/// <param name="Assign">Something was chosen for an <see cref="EditorFocus.Assign"/> focus (the window, and which
+/// window it replaces, if any).</param>
+/// <param name="DragIn">"Drag a window onto a zone" — the screens let the next drag through.</param>
+/// <param name="FormEditor">Leave design mode for the form in Settings (only offered without unsaved changes).</param>
+internal sealed record DesignHooks(
+    Func<int, Control> Placement,
+    Action<SavedWindow, int?> Assign,
+    Action DragIn,
+    Action FormEditor);
+
 /// <summary>
 /// The saved-flock designer (Settings › Flocks › Edit): what a saved flock asks for when it loads and how each of its
 /// windows is opened — laid out to disclose progressively, as in the template designer canvas
@@ -20,7 +55,7 @@ namespace Flamingle.App.Views.Settings;
 /// updates the draft and refreshes what's derived from it (summaries, "Becomes" lines, problems, Test load), so the
 /// text box being typed in keeps its focus.</para>
 /// </summary>
-internal sealed class SavedFlockEditor : Border
+internal sealed partial class SavedFlockEditor : Border
 {
     private static readonly FontFamily Mono = new("Cascadia Mono, Consolas, Courier New");
     private static readonly FontFamily Icons = new("Segoe Fluent Icons, Segoe MDL2 Assets");
@@ -49,8 +84,12 @@ internal sealed class SavedFlockEditor : Border
 
     private readonly Action<SavedFlock> _save;
     private readonly Action _back;
+    private readonly Func<IReadOnlyList<WindowChoice>> _openWindows;
+    private readonly Func<long, int, SavedWindow?> _capture;
     private SavedFlock _saved;
     private SavedFlock _draft;
+    private bool _isNew;
+    private bool _picking;
 
     // What's opened up.
     private int? _openWindow;
@@ -67,15 +106,60 @@ internal sealed class SavedFlockEditor : Border
     private IReadOnlyList<FlockProblem> _problems = [];
     private Dictionary<string, string> _values = [];
 
-    public SavedFlockEditor(SavedFlock flock, Action<SavedFlock> save, Action back)
+    // Design mode: what's in focus, and what its choices do (null in Settings' form).
+    private EditorFocus _focus = new EditorFocus.Form();
+    private readonly DesignHooks? _design;
+
+    /// <param name="isNew">A flock started from scratch: not stored until Save changes.</param>
+    /// <param name="openWindows">The windows open now, to add one from.</param>
+    /// <param name="capture">Capture an open window (handle, Z index) as a saved window, as saving a flock does.</param>
+    /// <param name="design">Set in design mode's panel: the editor then shows one part at a time (see
+    /// <see cref="Show"/>), and Done replaces the back link.</param>
+    public SavedFlockEditor(SavedFlock flock, bool isNew, Action<SavedFlock> save, Action back,
+        Func<IReadOnlyList<WindowChoice>> openWindows, Func<long, int, SavedWindow?> capture, DesignHooks? design = null)
     {
         _saved = _draft = flock;
+        _isNew = isNew;
         _save = save;
         _back = back;
+        _openWindows = openWindows;
+        _capture = capture;
+        _design = design;
+        if (design is not null) _focus = new EditorFocus.Flock();
+        _picking = isNew && design is null;   // a new flock starts by choosing its windows (on screen, by clicking a zone)
         Build();
     }
 
-    private bool Dirty => JsonFile<SavedFlock>.ToJson(_draft) != JsonFile<SavedFlock>.ToJson(_saved);
+    /// <summary>The flock as edited so far.</summary>
+    public SavedFlock Draft => _draft;
+
+    /// <summary>The draft changed (as typed, or restructured).</summary>
+    public event Action<SavedFlock>? DraftChanged;
+
+    /// <summary>The editor moved its own focus (e.g. back to the flock after removing a window, or for Test load).</summary>
+    public event Action<EditorFocus>? FocusChanged;
+
+    /// <summary>Show one part (design mode).</summary>
+    public void Show(EditorFocus focus)
+    {
+        _focus = focus;
+        if (focus is EditorFocus.Window or EditorFocus.Assign) _testing = false;
+        Build();
+    }
+
+    /// <summary>A change made outside the editor (design mode moving a window, picking an app).</summary>
+    public void Apply(SavedFlock draft) => Restructure(draft);
+
+    private void MoveFocus(EditorFocus focus)
+    {
+        _focus = focus;
+        FocusChanged?.Invoke(focus);
+    }
+
+    // A new flock has something to save once it has a window or an input; until then leaving it loses nothing.
+    private bool Dirty => _isNew
+        ? _draft.Windows.Count > 0 || _draft.InputList.Count > 0
+        : JsonFile<SavedFlock>.ToJson(_draft) != JsonFile<SavedFlock>.ToJson(_saved);
 
     /// <summary>Esc / the back link: leave, asking first if there are unsaved changes.</summary>
     public void Back()
@@ -94,12 +178,32 @@ internal sealed class SavedFlockEditor : Border
     private void Build()
     {
         _derived.Clear();
-        var page = new StackPanel { Spacing = 22 };
+        var page = new StackPanel { Spacing = _design is null ? 22 : 16 };
         page.Children.Add(Header());
         page.Children.Add(ProblemList());
-        if (_testing) page.Children.Add(TestLoad());
-        page.Children.Add(AsksFor());
-        page.Children.Add(Starts());
+        switch (_focus)
+        {
+            case EditorFocus.Window w when w.Index < _draft.Windows.Count:
+                page.Children.Add(DesignWindow(w.Index));
+                break;
+            case EditorFocus.Assign a:
+                page.Children.Add(AssignChooser(a));
+                break;
+            case EditorFocus.Custom c:
+                page.Children.Add(Heading(c.Title));
+                page.Children.Add(c.Build());
+                break;
+            case EditorFocus.Form:
+                if (_testing) page.Children.Add(TestLoad());
+                page.Children.Add(AsksFor());
+                page.Children.Add(Starts());
+                break;
+            default:   // the flock (or a window that's gone)
+                if (_testing) page.Children.Add(TestLoad());
+                page.Children.Add(AsksFor());
+                page.Children.Add(DesignFlockHint());
+                break;
+        }
         Child = page;
         Refresh();
     }
@@ -133,6 +237,7 @@ internal sealed class SavedFlockEditor : Border
         _draft = draft;
         _confirmDiscard = false;
         Refresh();
+        DraftChanged?.Invoke(draft);
     }
 
     private void Restructure(SavedFlock draft)
@@ -140,6 +245,7 @@ internal sealed class SavedFlockEditor : Border
         _draft = draft;
         _confirmDiscard = false;
         Build();
+        DraftChanged?.Invoke(draft);
     }
 
     // ---- Header ----
@@ -147,11 +253,11 @@ internal sealed class SavedFlockEditor : Border
     private Control Header()
     {
         var panel = new StackPanel { Spacing = 4 };
-        panel.Children.Add(Link("‹ Flocks", Back));
+        if (_design is null) panel.Children.Add(Link("‹ Flocks", Back));
 
         var name = new TextBox
         {
-            Text = _draft.Name, FontSize = 20, FontWeight = FontWeight.SemiBold, Foreground = Palette.Title,
+            Text = _draft.Name, FontSize = _design is null ? 20 : 17, FontWeight = FontWeight.SemiBold, Foreground = Palette.Title,
             Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(0, 2),
             MinWidth = 200, HorizontalAlignment = HorizontalAlignment.Left,
         };
@@ -170,6 +276,8 @@ internal sealed class SavedFlockEditor : Border
         var test = FlatButton("Test load", () =>
         {
             _testing = !_testing;
+            // In design mode Test load belongs to the flock, not to whatever's selected.
+            if (_testing && _design is not null && _focus is not EditorFocus.Flock) MoveFocus(new EditorFocus.Flock());
             Build();
         });
         if (_testing)
@@ -181,6 +289,7 @@ internal sealed class SavedFlockEditor : Border
         var save = FlatButton("Save changes", () =>
         {
             _saved = _draft;
+            _isNew = false;
             _confirmDiscard = false;
             _save(_draft);
             Build();
@@ -191,9 +300,17 @@ internal sealed class SavedFlockEditor : Border
 
         var top = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         top.Children.Add(new StackPanel { Children = { name, subtitle } });
-        var buttons = ButtonRow(test, save);
+        var buttons = _design is null ? ButtonRow(test, save) : ButtonRow(test, save, FlatButton("Done", Back));
         buttons.VerticalAlignment = VerticalAlignment.Top;
         Grid.SetColumn(buttons, 1);
+        if (_design is not null)
+        {
+            // The panel is narrow: name above, buttons beneath.
+            top.ColumnDefinitions = new ColumnDefinitions("*");
+            Grid.SetColumn(buttons, 0);
+            top.RowDefinitions = new RowDefinitions("Auto,Auto");
+            Grid.SetRow(buttons, 1);
+        }
         top.Children.Add(buttons);
         panel.Children.Add(top);
 
@@ -438,7 +555,27 @@ internal sealed class SavedFlockEditor : Border
     private Control Starts()
     {
         var section = new StackPanel { Spacing = 10 };
-        section.Children.Add(Heading("Starts"));
+        var title = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        title.Children.Add(Heading("Starts"));
+        if (!_picking)
+        {
+            var add = Link("Add a window", () =>
+            {
+                _picking = true;
+                Build();
+            });
+            Grid.SetColumn(add, 1);
+            title.Children.Add(add);
+        }
+        section.Children.Add(title);
+
+        if (_picking) section.Children.Add(WindowPicker());
+        if (_draft.Windows.Count == 0)
+        {
+            if (!_picking) section.Children.Add(Muted("Nothing yet — add the windows it should open."));
+            return section;
+        }
+
         var rows = new StackPanel();
         for (var i = 0; i < _draft.Windows.Count; i++)
         {
@@ -447,6 +584,61 @@ internal sealed class SavedFlockEditor : Border
         }
         section.Children.Add(new Border { Background = Palette.Row, CornerRadius = new CornerRadius(10), ClipToBounds = true, Child = rows });
         return section;
+    }
+
+    /// <summary>Choose an open window to add: it's captured as it is — its app, how it was started, where it sits.</summary>
+    private Control WindowPicker()
+    {
+        var body = new StackPanel { Spacing = 8 };
+        body.Children.Add(Heading("Add a window"));
+        body.Children.Add(Muted("Pick one that's open now. It's added as it is — its app, how it was started and where it sits — and you can change how it starts afterwards."));
+
+        var list = new StackPanel { Spacing = 2 };
+        foreach (var choice in _openWindows())
+        {
+            var line = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+            line.Inlines = new InlineCollection
+            {
+                new Run(choice.App) { Foreground = Palette.Title, FontWeight = FontWeight.Medium },
+                new Run("  " + choice.Title) { Foreground = Palette.Fg },
+            };
+            var add = FlatButton("Add", () => AddWindow(choice.Handle));
+            add.Padding = new Thickness(10, 3);
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+            row.Children.Add(line);
+            Grid.SetColumn(add, 1);
+            row.Children.Add(add);
+            list.Children.Add(row);
+        }
+        if (list.Children.Count == 0) list.Children.Add(Muted("No windows are open."));
+        body.Children.Add(new ScrollViewer { MaxHeight = 280, Content = list });
+
+        if (_draft.Windows.Count > 0 || !_isNew)
+        {
+            body.Children.Add(Link("Done adding", () =>
+            {
+                _picking = false;
+                Build();
+            }));
+        }
+        return Card(body);
+    }
+
+    private void AddWindow(long handle)
+    {
+        var z = _draft.Windows.Count == 0 ? 0 : _draft.Windows.Max(w => w.ZIndex) + 1;
+        if (_capture(handle, z) is not { } window) return;
+        _openWindow = _draft.Windows.Count;
+        Restructure(_draft with { Windows = [.. _draft.Windows, window] });
+    }
+
+    private void RemoveWindow(int index)
+    {
+        _openWindow = null;
+        _more.Clear();
+        _startIn.Clear();
+        if (_design is not null) MoveFocus(new EditorFocus.Flock());
+        Restructure(_draft with { Windows = _draft.Windows.Where((_, i) => i != index).ToList() });
     }
 
     private Control WindowRow(int index)
@@ -521,14 +713,14 @@ internal sealed class SavedFlockEditor : Border
         return row;
     }
 
-    private Control WindowDetails(int index)
+    private Control WindowDetails(int index, Thickness? margin = null)
     {
         var window = _draft.Windows[index];
         var recipe = window.EffectiveRecipe();
         void Set(Func<LaunchRecipe, LaunchRecipe> change) => Edit(WithWindow(index, w => w.WithRecipe(change(w.EffectiveRecipe()))));
         void SetAndRebuild(Func<LaunchRecipe, LaunchRecipe> change) => Restructure(WithWindow(index, w => w.WithRecipe(change(w.EffectiveRecipe()))));
 
-        var body = new StackPanel { Spacing = 12, Margin = new Thickness(56, 0, 14, 16) };
+        var body = new StackPanel { Spacing = 12, Margin = margin ?? new Thickness(56, 0, 14, 16) };
 
         if (recipe.Launches)
         {
@@ -610,6 +802,8 @@ internal sealed class SavedFlockEditor : Border
         changed.Children.Add(Link("Undo changes", () => Restructure(WithWindow(index, w => w.AsCaptured()))));
         Derive(() => changed.IsVisible = _draft.Windows[index].IsChanged);
         body.Children.Add(changed);
+
+        body.Children.Add(Link("Remove from this flock", () => RemoveWindow(index), Warn));
         return body;
     }
 

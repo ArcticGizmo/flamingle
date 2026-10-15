@@ -158,6 +158,10 @@ internal sealed class FlockController
         DispatcherTimer.RunOnce(() => Settle(group, order, state, gen), SettleDelay);
     }
 
+    /// <summary>Flamingle is about to minimise / restore a window itself (e.g. relaunch placing it): don't take that
+    /// for the user doing it.</summary>
+    public void Suppress(long handle) => _echo.Suppress(handle, TimeSpan.FromSeconds(2));
+
     public Flock Create(string name, IEnumerable<FlockMember> members)
     {
         var group = _registry.Create(name, members);
