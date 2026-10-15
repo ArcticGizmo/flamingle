@@ -1,0 +1,78 @@
+using Flamingle.Core.Geometry;
+
+namespace Flamingle.Core.Saved;
+
+/// <summary>
+/// A flock saved as a recipe (<c>saved-flocks.json</c>): enough about each window to find it again among running
+/// apps, or to start its app and put the new window back where it was. Unlike a live <see cref="Grouping.Flock"/>
+/// it holds no window handles, so it survives the apps closing and a reboot. It's a snapshot — it only changes
+/// when the flock is saved again.
+/// </summary>
+public sealed record SavedFlock(Guid Id, string Name, DateTimeOffset SavedAt, List<SavedWindow> Windows);
+
+/// <summary>One window of a saved flock.</summary>
+/// <param name="ProcessName">e.g. <c>Code</c> — for display.</param>
+/// <param name="ExePath">The full image path of the app that owns the window (for a Store app, the app's own
+/// process, not <c>ApplicationFrameHost</c>). Null if Flamingle couldn't read it.</param>
+/// <param name="Arguments">The process's command line minus the exe. Null if it couldn't be read (e.g. the app runs
+/// as administrator); empty if there were none.</param>
+/// <param name="AppUserModelId">The window's AppUserModelID, or the package's app id for a Store app. Null when the
+/// app doesn't set one.</param>
+/// <param name="Packaged">A Store / MSIX app — relaunched by <paramref name="AppUserModelId"/>, not its exe.</param>
+/// <param name="ZIndex">0 = the flock's topmost window.</param>
+/// <param name="Desktop">The virtual desktop it was on, if known.</param>
+/// <param name="Zone">Set if it was snapped into a zone layout.</param>
+/// <param name="Elevated">Runs as administrator — relaunching it would prompt.</param>
+public sealed record SavedWindow(
+    string ProcessName,
+    string? ExePath,
+    string? Arguments,
+    string? AppUserModelId,
+    bool Packaged,
+    string ClassName,
+    string Title,
+    SavedPlacement Placement,
+    int ZIndex,
+    Guid? Desktop = null,
+    SavedZone? Zone = null,
+    bool Elevated = false);
+
+/// <summary>Where a window was, in physical pixels, with the monitor it was on so it can be rescaled onto a
+/// different set of monitors.</summary>
+/// <param name="Monitor">Device name, e.g. <c>\\.\DISPLAY1</c>.</param>
+/// <param name="WorkArea">That monitor's work area at the time.</param>
+/// <param name="Scale">That monitor's DPI scale (1.0 = 96 dpi).</param>
+/// <param name="Restored">The window rect (<c>SetWindowPos</c> terms, invisible borders included) it has when
+/// neither minimised nor maximised.</param>
+/// <param name="Visible">Its visible frame, when it was on screen and not maximised.</param>
+public sealed record SavedPlacement(
+    string Monitor,
+    PixelRect WorkArea,
+    double Scale,
+    PixelRect Restored,
+    PixelRect? Visible,
+    bool Maximised,
+    bool Minimised);
+
+/// <summary>The zone(s) a window was snapped into, and the layout they belong to.</summary>
+public sealed record SavedZone(string LayoutId, List<int> Zones);
+
+/// <summary>The on-disk list of saved flocks.</summary>
+public sealed record SavedFlocks(List<SavedFlock> Flocks)
+{
+    public static SavedFlocks Empty => new([]);
+
+    /// <summary>Add a saved flock, replacing any with the same name (it keeps that one's id and place in the list).
+    /// <paramref name="replaced"/> says which happened.</summary>
+    public SavedFlocks Save(SavedFlock flock, out bool replaced)
+    {
+        var list = Flocks.ToList();
+        var i = list.FindIndex(f => string.Equals(f.Name, flock.Name, StringComparison.OrdinalIgnoreCase));
+        replaced = i >= 0;
+        if (replaced) list[i] = flock with { Id = list[i].Id };
+        else list.Add(flock);
+        return new SavedFlocks(list);
+    }
+
+    public SavedFlocks Remove(Guid id) => new(Flocks.Where(f => f.Id != id).ToList());
+}

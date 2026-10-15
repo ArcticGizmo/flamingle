@@ -208,12 +208,18 @@ internal sealed class FlockController
     /// looking at. False if there isn't one.</summary>
     public bool MinimiseZoneFlock(string deviceName)
     {
-        var flocks = _registry.ZoneFlocksOn(deviceName).ToList();
-        var group = flocks.FirstOrDefault(g => g.Members.Any(m => VirtualDesktops.IsOnCurrent((IntPtr)m.Handle) == true))
-                    ?? (_settings().ZoneFlockPerDesktop ? null : flocks.FirstOrDefault());
-        if (group is null) return false;
+        if (CurrentZoneFlock(deviceName) is not { } group) return false;
         Minimise(group);
         return true;
+    }
+
+    /// <summary>The zone flock on a monitor that the user is looking at — the one with windows on the current
+    /// virtual desktop.</summary>
+    public Flock? CurrentZoneFlock(string deviceName)
+    {
+        var flocks = _registry.ZoneFlocksOn(deviceName).ToList();
+        return flocks.FirstOrDefault(g => g.Members.Any(m => VirtualDesktops.IsOnCurrent((IntPtr)m.Handle) == true))
+               ?? (_settings().ZoneFlockPerDesktop ? null : flocks.FirstOrDefault());
     }
 
     /// <summary>"Zones · DISPLAY1", plus " · Desktop 2" (or the desktop's name) when there are several desktops.</summary>

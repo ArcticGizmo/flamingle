@@ -12,13 +12,13 @@ public sealed record FlockSnapshot(List<FlockSnapshot.Group> Groups)
 {
     public sealed record Group(
         Guid Id, string Name, DateTimeOffset LastUsed, List<FlockMember> Members, string? ZoneMonitor = null,
-        Guid? ZoneDesktop = null);
+        Guid? ZoneDesktop = null, bool Named = false);
 
     public static FlockSnapshot Empty { get; } = new([]);
 
     public static FlockSnapshot From(FlockRegistry registry)
         => new(registry.Groups
-            .Select(g => new Group(g.Id, g.Name, g.LastUsed, [.. g.Members], g.ZoneMonitor, g.ZoneDesktop))
+            .Select(g => new Group(g.Id, g.Name, g.LastUsed, [.. g.Members], g.ZoneMonitor, g.ZoneDesktop, g.Named))
             .ToList());
 
     /// <summary>Rebuild the groups, keeping only members <paramref name="isAlive"/> accepts.</summary>
@@ -28,5 +28,6 @@ public sealed record FlockSnapshot(List<FlockSnapshot.Group> Groups)
             LastUsed = g.LastUsed,
             ZoneMonitor = g.ZoneMonitor,
             ZoneDesktop = g.ZoneDesktop,
+            Named = g.Named,
         });
 }

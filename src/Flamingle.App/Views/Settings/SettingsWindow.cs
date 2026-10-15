@@ -9,6 +9,7 @@ using Flamingle.App.Native;
 using Flamingle.Core;
 using Flamingle.Core.Geometry;
 using Flamingle.Core.Grouping;
+using Flamingle.Core.Saved;
 using Flamingle.Core.Settings;
 using Flamingle.Core.Zones;
 using static Flamingle.App.Views.Settings.SettingsUi;
@@ -24,6 +25,9 @@ internal sealed class SettingsHost
     public required FlockRegistry Registry { get; init; }
     public required Action<Flock> ToggleFlock { get; init; }
     public required Action NewFlock { get; init; }
+    public required Func<IReadOnlyList<SavedFlock>> SavedFlocks { get; init; }
+    public required Action<Flock> SaveFlock { get; init; }
+    public required Action<Guid> DeleteSavedFlock { get; init; }
     public required Func<MonitorInfo, string> LayoutIdFor { get; init; }
     public required Action<MonitorInfo, string> ApplyLayout { get; init; }
     public required Action<MonitorInfo> ShowZones { get; init; }
@@ -168,13 +172,18 @@ internal sealed class SettingsWindow : Window
 
         var groups = _host.Registry.Groups;
         if (groups.Count == 0)
-        {
             page.Children.Add(BodyText($"No flocks yet. Press {Hotkey(S.NewFlockHotkey)} in any window to start one."));
-            return;
-        }
 
         foreach (var group in groups)
             page.Children.Add(FlockCard(group));
+
+        var saved = _host.SavedFlocks();
+        page.Children.Add(SectionTitle("Saved flocks"));
+        page.Children.Add(BodyText(
+            "Snapshots of a flock's apps and where their windows were, for relaunching later (coming next). Save a " +
+            "flock above; saving one with the same name replaces it."));
+        foreach (var flock in saved)
+            page.Children.Add(SavedFlockCard(flock));
     }
 
     private Control FlockCard(Flock group)
@@ -212,7 +221,57 @@ internal sealed class SettingsWindow : Window
         });
         var actions = ButtonRow(
             FlatButton("Minimise / restore", () => _host.ToggleFlock(group)),
+            FlatButton("Save", () => _host.SaveFlock(group)),
             FlatButton("Dissolve", () => _host.Registry.Dissolve(group)));
+        return Card(header, actions, members);
+    }
+
+    private Control SavedFlockCard(SavedFlock flock)
+    {
+        var windows = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) };
+        foreach (var w in flock.Windows.OrderBy(w => w.ZIndex))
+        {
+            var recipe = $"{Place(w)} · {Recipe(w)}";
+            var detail = new TextBlock
+            {
+                Text = recipe, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = Warning(w) ? Palette.AccentBrush : Palette.Muted,
+            };
+            ToolTip.SetTip(detail, recipe);
+            windows.Children.Add(new StackPanel
+            {
+                Spacing = 1,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"{w.ProcessName} — {w.Title}", Foreground = Palette.Fg, FontSize = 12,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                    },
+                    detail,
+                },
+            });
+        }
+
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        header.Children.Add(new StackPanel
+        {
+            Spacing = 2,
+            Children =
+            {
+                new TextBlock { Text = flock.Name, FontSize = 14, FontWeight = FontWeight.SemiBold, Foreground = Palette.Title },
+                new TextBlock
+                {
+                    Text = $"{flock.Windows.Count} window{(flock.Windows.Count == 1 ? "" : "s")} · saved {flock.SavedAt.LocalDateTime:d MMM HH:mm}",
+                    FontSize = 12, Foreground = Palette.Muted,
+                },
+            },
+        });
+        return Card(header, ButtonRow(FlatButton("Delete", () => _host.DeleteSavedFlock(flock.Id))), windows);
+    }
+
+    private static Border Card(Grid header, StackPanel actions, Control body)
+    {
         actions.Margin = default;
         actions.VerticalAlignment = VerticalAlignment.Top;
         Grid.SetColumn(actions, 1);
@@ -224,9 +283,35 @@ internal sealed class SettingsWindow : Window
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(14, 12),
             Margin = new Thickness(0, 10, 0, 0),
-            Child = new StackPanel { Children = { header, members } },
+            Child = new StackPanel { Children = { header, body } },
         };
     }
+
+    /// <summary>Where a saved window goes back to, e.g. <c>DISPLAY1 · zones 1–2 of columns-3</c>.</summary>
+    private static string Place(SavedWindow w)
+    {
+        var p = w.Placement;
+        var where = p.Monitor.TrimStart('\\', '.');
+        var how = w.Zone is { } z ? $"zone{(z.Zones.Count == 1 ? "" : "s")} {string.Join("+", z.Zones.Select(i => i + 1))} of {z.LayoutId}"
+            : p.Maximised ? "maximised"
+            : $"{p.Restored.Width}×{p.Restored.Height} at {p.Restored.X},{p.Restored.Y}";
+        return $"{where} · {how}{(p.Minimised ? " (minimised)" : "")}";
+    }
+
+    /// <summary>How a saved window's app would be started.</summary>
+    private static string Recipe(SavedWindow w)
+    {
+        if (w.Packaged) return $"Store app {w.AppUserModelId}";
+        if (w.ExePath is null) return "⚠ couldn't read its exe";
+
+        var line = string.IsNullOrEmpty(w.Arguments) ? w.ExePath : $"{w.ExePath} {w.Arguments}";
+        if (w.Arguments is null) line += " (⚠ arguments unreadable)";
+        if (w.Elevated) line = "⚠ runs as administrator · " + line;
+        if (w.AppUserModelId is { } id) line += $" · id {id}";
+        return line;
+    }
+
+    private static bool Warning(SavedWindow w) => w.Elevated || (!w.Packaged && (w.ExePath is null || w.Arguments is null));
 
     private string? SlotHotkey(int slot) => Services.HotkeyService.SlotHotkeyText(S, slot);
 

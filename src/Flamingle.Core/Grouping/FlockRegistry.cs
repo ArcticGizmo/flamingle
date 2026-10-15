@@ -58,11 +58,12 @@ public sealed class FlockRegistry
     {
         if (group.ZoneMonitor is null || group.ZoneDesktop == desktop) return;
         group.ZoneDesktop = desktop;
-        group.Name = newName;
+        if (!group.Named) group.Name = newName;
         Changed?.Invoke();
     }
 
-    /// <summary>A zone layout moved to another monitor: its zone flocks (one per desktop) follow, renamed.</summary>
+    /// <summary>A zone layout moved to another monitor: its zone flocks (one per desktop) follow, renamed unless the
+    /// user named them.</summary>
     public void RehomeZoneFlocks(string from, string to, Func<Flock, string> nameFor)
     {
         if (from == to) return;
@@ -71,13 +72,13 @@ public sealed class FlockRegistry
         foreach (var group in moving)
         {
             group.ZoneMonitor = to;
-            group.Name = nameFor(group);
+            if (!group.Named) group.Name = nameFor(group);
         }
         Changed?.Invoke();
     }
 
-    /// <summary>Two zone layouts swapped monitors: each monitor's zone flocks move to the other, renamed.
-    /// <paramref name="nameFor"/> sees each flock already on its new monitor.</summary>
+    /// <summary>Two zone layouts swapped monitors: each monitor's zone flocks move to the other, renamed unless the
+    /// user named them. <paramref name="nameFor"/> sees each flock already on its new monitor.</summary>
     public void SwapZoneFlocks(string a, string b, Func<Flock, string> nameFor)
     {
         if (a == b) return;
@@ -86,7 +87,7 @@ public sealed class FlockRegistry
         if (fromA.Count == 0 && fromB.Count == 0) return;
         foreach (var group in fromA) group.ZoneMonitor = b;
         foreach (var group in fromB) group.ZoneMonitor = a;
-        foreach (var group in fromA.Concat(fromB)) group.Name = nameFor(group);
+        foreach (var group in fromA.Concat(fromB).Where(g => !g.Named)) group.Name = nameFor(group);
         Changed?.Invoke();
     }
 
@@ -132,10 +133,14 @@ public sealed class FlockRegistry
         return changed;
     }
 
+    /// <summary>The user renames a flock — from now on it keeps that name (see <see cref="Flock.Named"/>).</summary>
     public void Rename(Flock group, string name)
     {
-        if (string.IsNullOrWhiteSpace(name) || group.Name == name) return;
-        group.Name = name.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        name = name.Trim();
+        if (group.Name == name) return;
+        group.Name = name;
+        group.Named = true;
         Changed?.Invoke();
     }
 

@@ -187,9 +187,14 @@ internal static class Win32
         public RECT rcNormalPosition;
     }
 
+    public const uint WPF_RESTORETOMAXIMIZED = 0x0002;
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr childAfter, string? className, string? windowName);
 
     [DllImport("user32.dll")]
     public static extern IntPtr WindowFromPoint(POINT point);

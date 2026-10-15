@@ -124,6 +124,30 @@ internal sealed class ZoneContainerService : IDisposable
     /// <summary>The gaps toggle in a layout's panel was flipped (the setting is global — the app owns it).</summary>
     public event Action<bool>? GapsToggled;
 
+    /// <summary>What a layout's panel shows in its Flock section, by monitor device name. Flocks are the app's
+    /// business — it supplies them.</summary>
+    public Func<string, PanelFlocks>? PanelFlocksFor { get; set; }
+
+    /// <summary>A panel renamed its layout's flock (device name, new name).</summary>
+    public event Action<string, string>? FlockRenameRequested;
+
+    /// <summary>A panel saved its layout's flock (device name, name to save it under).</summary>
+    public event Action<string, string>? FlockSaveRequested;
+
+    /// <summary>A panel deleted a saved flock.</summary>
+    public event Action<Guid>? SavedFlockDeleteRequested;
+
+    /// <summary>Flocks or saved flocks changed: bring any open panel up to date.</summary>
+    public void RefreshPanels()
+    {
+        foreach (var (c, h) in _handles) SetPanelFlocks(c, h.Panel);
+    }
+
+    private void SetPanelFlocks(ZoneContainer c, LayoutPanelWindow panel)
+    {
+        if (PanelFlocksFor is { } flocks) panel.SetFlocks(flocks(c.DeviceName));
+    }
+
     /// <summary>Re-fit every layout's windows — after a setting that changes the zones (e.g. gaps).</summary>
     public void ReflowAll()
     {
@@ -232,6 +256,9 @@ internal sealed class ZoneContainerService : IDisposable
         }
         return null;
     }
+
+    /// <summary>The layout a window is snapped into, if any.</summary>
+    public ZoneContainer? ContainerOf(IntPtr hwnd) => _containers.FirstOrDefault(c => c.Slots.ContainsKey(hwnd));
 
     /// <summary>A window was dropped into <paramref name="zones"/> on <paramref name="monitor"/>.</summary>
     /// <param name="before">The window's rect before this drag (null if it was maximised).</param>
@@ -400,6 +427,7 @@ internal sealed class ZoneContainerService : IDisposable
         h.Panel.SetGaps(_settings().ZoneGaps);
         h.Panel.SetAdjusting(_adjusting.Contains(c));
         h.Panel.SetHistory(_history.CanUndo, _history.CanRedo);
+        SetPanelFlocks(c, h.Panel);
         SyncDividers(c, h);
         PositionHandles(c, h, monitor);
 
@@ -531,20 +559,32 @@ internal sealed class ZoneContainerService : IDisposable
         frame.Place(c.Frame, monitor.Scale);
         frame.Show();   // first, so the split strips and the panel (also topmost) land above it
 
+        RegisterEditKeys();
+        _adjusting.Add(c);
+        SyncHandles();   // shows the panel and split strips
+    }
+
+    /// <summary>Esc, Ctrl+Z and Ctrl+Y belong to edit mode while it's up (system-wide, since the panel never has
+    /// focus) — except while a name is being typed in the panel.</summary>
+    private void RegisterEditKeys()
+    {
         _broadcasts?.RegisterHotkey(EscHotkeyId, MOD_NOREPEAT, VK_ESCAPE);
         _broadcasts?.RegisterHotkey(UndoHotkeyId, MOD_CONTROL | MOD_NOREPEAT, 'Z');
         _broadcasts?.RegisterHotkey(RedoHotkeyId, MOD_CONTROL | MOD_NOREPEAT, 'Y');
         _broadcasts?.RegisterHotkey(RedoAltHotkeyId, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, 'Z');
-        _adjusting.Add(c);
-        SyncHandles();   // shows the panel and split strips
+    }
+
+    private void UnregisterEditKeys()
+    {
+        foreach (var id in new[] { EscHotkeyId, UndoHotkeyId, RedoHotkeyId, RedoAltHotkeyId })
+            _broadcasts?.UnregisterHotkey(id);
     }
 
     private void ExitEdit()
     {
         if (_editing is not { } c) return;
         _editing = null;
-        foreach (var id in new[] { EscHotkeyId, UndoHotkeyId, RedoHotkeyId, RedoAltHotkeyId })
-            _broadcasts?.UnregisterHotkey(id);
+        UnregisterEditKeys();
         _editFrame?.Close();
         _editFrame = null;
         _adjusting.Remove(c);
@@ -671,6 +711,20 @@ internal sealed class ZoneContainerService : IDisposable
         };
         panel.ActionChosen += action => OnPanelAction(c, action);
         panel.GapsToggled += on => GapsToggled?.Invoke(on);
+        panel.FlockRenamed += name => FlockRenameRequested?.Invoke(c.DeviceName, name);
+        panel.FlockSaved += name => FlockSaveRequested?.Invoke(c.DeviceName, name);
+        panel.SavedFlockDeleted += id => SavedFlockDeleteRequested?.Invoke(id);
+        panel.TypingChanged += typing =>
+        {
+            if (_editing != c) return;
+            if (typing) UnregisterEditKeys();
+            else RegisterEditKeys();
+        };
+        // The Flock section grows and shrinks (saved flocks, the name field): keep the panel centred.
+        panel.SizeChanged += (_, _) =>
+        {
+            if (_handles.TryGetValue(c, out var h) && ReferenceEquals(h.Panel, panel)) PositionHandles(c, h, MonitorOf(c));
+        };
     }
 
     private void OnPanelAction(ZoneContainer c, PanelAction action)

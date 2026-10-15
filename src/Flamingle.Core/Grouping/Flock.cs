@@ -29,5 +29,9 @@ public sealed class Flock
     /// own flock. Null for hand-picked flocks, and for zone flocks made before (or without) per-desktop flocks.</summary>
     public Guid? ZoneDesktop { get; set; }
 
+    /// <summary>The user gave it its name. A zone flock's generated name ("Zones · DISPLAY1") follows it between
+    /// monitors and desktops; a name the user chose is kept.</summary>
+    public bool Named { get; set; }
+
     public bool Contains(long handle) => Members.Any(m => m.Handle == handle);
 }

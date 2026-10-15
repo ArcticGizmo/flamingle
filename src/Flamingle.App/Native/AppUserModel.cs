@@ -3,12 +3,39 @@ using System.Runtime.InteropServices;
 namespace Flamingle.App.Native;
 
 /// <summary>
-/// Gives one window its own AppUserModelID. The taskbar groups buttons by this id, so without it every
+/// Reads and sets windows' AppUserModelIDs. The taskbar groups buttons by this id, so without it every
 /// flock button would stack under Flamingle's own; with a per-flock id each gets its own button (and its own
-/// icon) like a separate app.
+/// icon) like a separate app. Saved flocks read it to tell apps (and app profiles, PWAs) apart.
 /// </summary>
 internal static class AppUserModel
 {
+    /// <summary>The AppUserModelID a window set for itself, or null if it didn't set one (most Win32 apps don't —
+    /// the taskbar then falls back to the exe).</summary>
+    public static string? GetId(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return null;
+        var iid = IID_IPropertyStore;
+        if (SHGetPropertyStoreForWindow(hwnd, ref iid, out var store) != 0 || store is null) return null;
+
+        var value = new PROPVARIANT();
+        try
+        {
+            if (store.GetValue(ref AppUserModelIdKey, out value) != 0 || value.vt != VT_LPWSTR || value.p == IntPtr.Zero)
+                return null;
+            var id = Marshal.PtrToStringUni(value.p);
+            return string.IsNullOrEmpty(id) ? null : id;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        finally
+        {
+            PropVariantClear(ref value);
+            Marshal.ReleaseComObject(store);
+        }
+    }
+
     private static readonly Guid IID_IPropertyStore = new("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");
 
     // PKEY_AppUserModel_ID = {9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}, 5

@@ -50,7 +50,8 @@ public sealed class PersistenceTests : IDisposable
     {
         var desktop = Guid.NewGuid();
         var reg = new FlockRegistry();
-        reg.Create("Zones", [new FlockMember(1, 10, "Code", "a")], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: desktop);
+        var zones = reg.Create("Zones", [new FlockMember(1, 10, "Code", "a")], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: desktop);
+        reg.Rename(zones, "Work");
 
         var file = new JsonFile<FlockSnapshot>(Path.Combine(_dir, "flocks.json"));
         file.Save(FlockSnapshot.From(reg));
@@ -59,6 +60,7 @@ public sealed class PersistenceTests : IDisposable
         loaded.Load(file.Load(FlockSnapshot.Empty).ToGroups(_ => true));
         Assert.Equal(@"\\.\DISPLAY1", loaded.Groups.Single().ZoneMonitor);
         Assert.Equal(desktop, loaded.Groups.Single().ZoneDesktop);
+        Assert.True(loaded.Groups.Single().Named);
     }
 
     [Fact]

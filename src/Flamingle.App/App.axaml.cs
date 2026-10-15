@@ -26,6 +26,7 @@ public partial class App : Application
     private FlockController? _controller;
     private ZoneDragService? _zones;
     private ZoneContainerService? _containers;
+    private SavedFlockService? _saved;
     private TaskbarService? _taskbar;
     private HotkeyService? _hotkeys;
     private TrayIcon? _tray;
@@ -84,10 +85,29 @@ public partial class App : Application
                 if (!_controller.MinimiseZoneFlock(device))
                     ToastWindow.Show("This layout has no flock — turn on \"Zoned windows form a flock\" in Settings → Zones.");
             };
+            _containers.PanelFlocksFor = device => new PanelFlocks(_controller.CurrentZoneFlock(device)?.Name, _saved?.All ?? []);
+            _containers.FlockRenameRequested += (device, name) =>
+            {
+                if (_controller.CurrentZoneFlock(device) is { } group) _registry.Rename(group, name);
+            };
+            _containers.FlockSaveRequested += (device, name) =>
+            {
+                if (_controller.CurrentZoneFlock(device) is { } group) _saved?.Save(group, name);
+            };
+            _containers.SavedFlockDeleteRequested += id => _saved?.Delete(id);
             _containers.Start();
 
             _zones = new ZoneDragService(_hooks, () => _settings, _containers);
             _zones.Start();
+
+            _saved = new SavedFlockService(Path.Combine(dataDir, "saved-flocks.json"), _containers);
+            _saved.Load();
+            _saved.Notice += ToastWindow.Show;
+            _saved.Changed += () =>
+            {
+                _settingsWindow?.RefreshFlocks();
+                _containers.RefreshPanels();
+            };
 
             _taskbar = new TaskbarService(_registry, _controller, _hooks, () => _settings);
             _taskbar.Sync();
@@ -184,6 +204,9 @@ public partial class App : Application
             Registry = _registry,
             ToggleFlock = group => _controller.Toggle(group),
             NewFlock = ShowPicker,
+            SavedFlocks = () => _saved?.All ?? [],
+            SaveFlock = group => _saved?.Save(group),
+            DeleteSavedFlock = id => _saved?.Delete(id),
             LayoutIdFor = monitor => ZoneLayout.ById(_containers?.LayoutIdFor(monitor) ?? _settings.LayoutIdFor(monitor.DeviceName)).Id,
             ApplyLayout = ApplyLayout,
             ShowZones = monitor => _zones?.Preview(monitor),
@@ -264,6 +287,7 @@ public partial class App : Application
         UpdateTrayTooltip();
         _taskbar?.Sync();
         _settingsWindow?.RefreshFlocks();
+        _containers?.RefreshPanels();
     }
 
     private void SaveFlocks() => _flocksFile?.Save(FlockSnapshot.From(_registry));

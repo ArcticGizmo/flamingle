@@ -153,21 +153,13 @@ internal static class WindowQuery
     }
 
     private static string ProcessName(uint pid)
+        => ProcessInfo.ImagePath(pid) is { } path ? Path.GetFileNameWithoutExtension(path) : string.Empty;
+
+    /// <summary>A minimised window that will come back maximised.</summary>
+    public static bool RestoresMaximised(IntPtr hwnd)
     {
-        var h = Win32.OpenProcess(Win32.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-        if (h == IntPtr.Zero) return string.Empty;
-        try
-        {
-            var sb = new StringBuilder(1024);
-            var size = (uint)sb.Capacity;
-            return Win32.QueryFullProcessImageNameW(h, 0, sb, ref size)
-                ? Path.GetFileNameWithoutExtension(sb.ToString())
-                : string.Empty;
-        }
-        finally
-        {
-            Win32.CloseHandle(h);
-        }
+        var placement = new Win32.WINDOWPLACEMENT { length = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Win32.WINDOWPLACEMENT>() };
+        return Win32.GetWindowPlacement(hwnd, ref placement) && (placement.flags & Win32.WPF_RESTORETOMAXIMIZED) != 0;
     }
 
     public static string ClassName(IntPtr hwnd)

@@ -91,6 +91,27 @@ public class FlockRegistryTests
     }
 
     [Fact]
+    public void A_renamed_zone_flock_keeps_its_name_when_it_moves()
+    {
+        var reg = new FlockRegistry();
+        var named = reg.Create("Zones · DISPLAY1", [M(1)], zoneMonitor: "D1");
+        var generated = reg.Create("Zones · DISPLAY2", [M(2)], zoneMonitor: "D2");
+        reg.Rename(named, "Work");
+        Assert.True(named.Named);
+        Assert.False(generated.Named);
+
+        reg.SwapZoneFlocks("D1", "D2", g => $"Zones · {g.ZoneMonitor}");
+        Assert.Equal(("D2", "Work"), (named.ZoneMonitor, named.Name));
+        Assert.Equal(("D1", "Zones · D1"), (generated.ZoneMonitor, generated.Name));
+
+        reg.RehomeZoneFlocks("D2", "D3", g => $"Zones · {g.ZoneMonitor}");
+        Assert.Equal(("D3", "Work"), (named.ZoneMonitor, named.Name));
+
+        reg.SetZoneDesktop(named, Guid.NewGuid(), "Zones · D3 · Desktop 2");
+        Assert.Equal("Work", named.Name);
+    }
+
+    [Fact]
     public void Most_recently_used_follows_touch()
     {
         var time = new ManualTime();

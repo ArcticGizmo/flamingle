@@ -49,6 +49,10 @@ A lightweight tray app that lets you treat a set of windows as a single parent "
 - Relaunch a layout from nothing: start missing apps, wait for their windows, place them.
 - Re-attach to already-running instances instead of launching duplicates.
 - Support Win32 apps (exe path + args) and Store/UWP apps (AppUserModelID).
+- Built in steps: (1) **capture** — a flock's Save button writes `saved-flocks.json` (exe, args, AUMID, class,
+  title, monitor + rect, zone, Z-order, desktop), shown in Settings → Flocks so we can judge how much real apps
+  give away; (2) re-attach to open windows and place them; (3) launch what's missing and wait for its windows
+  (matched by exe/AUMID, not PID — single-instance apps hand off); (4) zones, Z-order, desktops.
 
 ### Zones (pulled forward, experimental)
 
@@ -62,7 +66,9 @@ FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on Po
   monitor to that layout.
 - Layouts show nothing on screen. The edit-layout shortcut (Alt+Shift+E) puts the layout under the cursor into
   *edit mode*: an outline you drag from anywhere to move it (dropping it on a monitor that has a layout swaps the
-  two), its split strips, and its panel. The old always-visible pull-tab is gone.
+  two), its split strips, and its panel. The old always-visible pull-tab is gone. The panel also names and saves the
+  layout's zone flock (a zone flock the user renames keeps that name when it moves monitor or desktop) and lists
+  the saved flocks.
 - Windows dropped into zones on a monitor form that monitor's *zone flock*. This is a toggle; it
   replaces guessing Snap Groups.
 - Zone flocks are per monitor *per virtual desktop* (toggle, on by default), so zoned windows on
@@ -118,6 +124,8 @@ and `../perch` (`Flamingle.Core` pure/testable, `Flamingle.App` Avalonia + Win32
 - **Moving:** modifier-key + drag moves the group; a plain drag moves just the one window.
 - **Config:** JSON under `%APPDATA%\Flamingle\` (`Flamingle (Dev)` for dev builds).
 - **Membership:** a window belongs to at most one flock. Adding it to another moves it.
+- **Saving:** an explicit snapshot — "Save" on a flock writes a saved flock (replacing one of the same name).
+  Live flocks behave as before and still drop windows that close; a saved flock only changes when re-saved.
 
 ## Working mode
 
