@@ -10,9 +10,32 @@ namespace Flamingle.Core.Saved;
 /// capture; the designer edits each window's <see cref="SavedWindow.Recipe"/> and the <see cref="Inputs"/> it
 /// asks for when it loads.
 /// </summary>
+/// <param name="Dismissed">Suggested inputs the user said no to (paths), so the designer stops offering them.</param>
 public sealed record SavedFlock(
-    Guid Id, string Name, DateTimeOffset SavedAt, List<SavedWindow> Windows, List<FlockInput>? Inputs = null)
+    Guid Id, string Name, DateTimeOffset SavedAt, List<SavedWindow> Windows, List<FlockInput>? Inputs = null,
+    List<string>? Dismissed = null)
 {
+    [JsonIgnore]
+    public IReadOnlyList<string> DismissedList => Dismissed ?? [];
+
+    /// <summary>
+    /// This flock re-captured as <paramref name="recaptured"/>, keeping what the designer added: its id, inputs and
+    /// dismissed suggestions, and each window's edited recipe — carried to the re-captured window of the same app
+    /// (matched in order, so a second Code window gets the second Code recipe).
+    /// </summary>
+    public SavedFlock Recaptured(SavedFlock recaptured)
+    {
+        var edited = Windows.Where(w => w.Recipe is not null).ToList();
+        var windows = recaptured.Windows.Select(w =>
+        {
+            var match = edited.FirstOrDefault(o => string.Equals(o.AppKey, w.AppKey, StringComparison.OrdinalIgnoreCase));
+            if (match is null) return w;
+            edited.Remove(match);
+            return w.WithRecipe(match.Recipe!);
+        }).ToList();
+        return recaptured with { Id = Id, Inputs = Inputs, Dismissed = Dismissed, Windows = windows };
+    }
+
     /// <summary>The inputs (none for a flock that starts the same way every time).</summary>
     [JsonIgnore]
     public IReadOnlyList<FlockInput> InputList => Inputs ?? [];
@@ -80,6 +103,10 @@ public sealed record SavedWindow(
     bool Elevated = false,
     LaunchRecipe? Recipe = null)
 {
+    /// <summary>Which app it is, for matching windows across captures: the Store app id, else the exe.</summary>
+    [JsonIgnore]
+    public string AppKey => (Packaged ? AppUserModelId : ExePath) ?? ProcessName;
+
     /// <summary>The edited recipe, else the captured one.</summary>
     public LaunchRecipe EffectiveRecipe() => Recipe ?? LaunchRecipe.FromCaptured(this);
 
@@ -131,17 +158,21 @@ public sealed record SavedFlocks(List<SavedFlock> Flocks)
 {
     public static SavedFlocks Empty => new([]);
 
-    /// <summary>Add a saved flock, replacing any with the same name (it keeps that one's id and place in the list).
-    /// <paramref name="replaced"/> says which happened.</summary>
+    /// <summary>Add a saved flock, replacing any with the same name — it keeps that one's place in the list and what
+    /// the designer added to it (<see cref="SavedFlock.Recaptured"/>). <paramref name="replaced"/> says which
+    /// happened.</summary>
     public SavedFlocks Save(SavedFlock flock, out bool replaced)
     {
         var list = Flocks.ToList();
         var i = list.FindIndex(f => string.Equals(f.Name, flock.Name, StringComparison.OrdinalIgnoreCase));
         replaced = i >= 0;
-        if (replaced) list[i] = flock with { Id = list[i].Id };
+        if (replaced) list[i] = list[i].Recaptured(flock);
         else list.Add(flock);
         return new SavedFlocks(list);
     }
+
+    /// <summary>Replace the saved flock with the same id (an edit from the designer).</summary>
+    public SavedFlocks Update(SavedFlock flock) => new(Flocks.Select(f => f.Id == flock.Id ? flock : f).ToList());
 
     public SavedFlocks Remove(Guid id) => new(Flocks.Where(f => f.Id != id).ToList());
 }

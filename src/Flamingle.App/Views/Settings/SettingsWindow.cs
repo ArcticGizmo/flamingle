@@ -28,6 +28,7 @@ internal sealed class SettingsHost
     public required Func<IReadOnlyList<SavedFlock>> SavedFlocks { get; init; }
     public required Action<Flock> SaveFlock { get; init; }
     public required Action<Guid> DeleteSavedFlock { get; init; }
+    public required Action<SavedFlock> UpdateSavedFlock { get; init; }
     public required Func<MonitorInfo, string> LayoutIdFor { get; init; }
     public required Action<MonitorInfo, string> ApplyLayout { get; init; }
     public required Action<MonitorInfo> ShowZones { get; init; }
@@ -52,6 +53,15 @@ internal sealed class SettingsWindow : Window
     private readonly List<(string Key, Button Item)> _nav = [];
     private readonly Panel _content = new();
 
+    // The saved-flock designer, shown in place of the Flocks page while a saved flock is being edited.
+    private readonly ScrollViewer _editorPage = new()
+    {
+        IsVisible = false,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+    };
+    private SavedFlockEditor? _editor;
+
     public SettingsWindow(SettingsHost host, string page = "flocks")
     {
         _host = host;
@@ -72,6 +82,7 @@ internal sealed class SettingsWindow : Window
         AddPage(nav, "behaviour", "Behaviour", BuildBehaviour);
         AddPage(nav, "shortcuts", "Shortcuts", BuildShortcuts);
         AddPage(nav, "about", "About", BuildAbout);
+        _content.Children.Add(_editorPage);
 
         var rail = new Border { Background = Palette.NavBg, Width = NavWidth, Child = nav };
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
@@ -99,6 +110,9 @@ internal sealed class SettingsWindow : Window
 
     public void Select(string key)
     {
+        _editor = null;
+        _editorPage.Content = null;
+        _editorPage.IsVisible = false;
         if (!_pages.ContainsKey(key)) key = "flocks";
         foreach (var (k, (page, _)) in _pages) page.IsVisible = k == key;
         foreach (var (k, item) in _nav)
@@ -110,11 +124,26 @@ internal sealed class SettingsWindow : Window
         }
     }
 
+    /// <summary>Open the designer for a saved flock, in place of the Flocks page.</summary>
+    private void ShowEditor(SavedFlock flock)
+    {
+        Select("flocks");
+        foreach (var (page, _) in _pages.Values) page.IsVisible = false;
+        _editor = new SavedFlockEditor(flock, _host.UpdateSavedFlock, () => Select("flocks"));
+        _editorPage.Content = new Border
+        {
+            Margin = new Thickness(24, 20, 24, 24), MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left, Child = _editor,
+        };
+        _editorPage.IsVisible = true;
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.Key == Key.Escape && !e.Handled)
         {
-            Close();
+            // In the designer Esc goes back to the Flocks page (asking first if there are unsaved changes).
+            if (_editor is not null) _editor.Back();
+            else Close();
             e.Handled = true;
         }
         base.OnKeyDown(e);
@@ -267,7 +296,9 @@ internal sealed class SettingsWindow : Window
                 },
             },
         });
-        return Card(header, ButtonRow(FlatButton("Delete", () => _host.DeleteSavedFlock(flock.Id))), windows);
+        return Card(header, ButtonRow(
+            FlatButton("Edit…", () => ShowEditor(flock)),
+            FlatButton("Delete", () => _host.DeleteSavedFlock(flock.Id))), windows);
     }
 
     private static Border Card(Grid header, StackPanel actions, Control body)
@@ -290,20 +321,24 @@ internal sealed class SettingsWindow : Window
     /// <summary>Where a saved window goes back to, e.g. <c>DISPLAY1 · zones 1+2 of 3 columns</c>.</summary>
     private static string Place(SavedWindow w) => w.PlaceText() + (w.Placement.Minimised ? " (minimised)" : "");
 
-    /// <summary>How a saved window's app would be started.</summary>
+    /// <summary>How a saved window's app would be started (as edited in the designer, else as captured).</summary>
     private static string Recipe(SavedWindow w)
     {
-        if (w.Packaged) return $"Store app {w.AppUserModelId}";
-        if (w.ExePath is null) return "⚠ couldn't read its exe";
-
-        var line = string.IsNullOrEmpty(w.Arguments) ? w.ExePath : $"{w.ExePath} {w.Arguments}";
-        if (w.Arguments is null) line += " (⚠ arguments unreadable)";
+        var r = w.EffectiveRecipe();
+        var line = r.Kind switch
+        {
+            LaunchKind.Skip => "skipped when loading",
+            LaunchKind.AlreadyOpen => w.ExePath is null && !w.IsChanged ? "⚠ couldn't read its exe — uses an open window" : "uses a window that's already open",
+            LaunchKind.StoreApp => string.IsNullOrEmpty(r.Arguments) ? $"Store app {r.Target}" : $"Store app {r.Target} {r.Arguments}",
+            _ => string.IsNullOrEmpty(r.Arguments) ? r.Target : $"{r.Target} {r.Arguments}",
+        };
+        if (!w.IsChanged && r.Kind == LaunchKind.Program && w.Arguments is null) line += " (⚠ arguments unreadable)";
         if (w.Elevated) line = "⚠ runs as administrator · " + line;
-        if (w.AppUserModelId is { } id) line += $" · id {id}";
+        if (w.IsChanged) line = "edited · " + line;
         return line;
     }
 
-    private static bool Warning(SavedWindow w) => w.Elevated || (!w.Packaged && (w.ExePath is null || w.Arguments is null));
+    private static bool Warning(SavedWindow w) => w.Elevated || (!w.IsChanged && !w.Packaged && (w.ExePath is null || w.Arguments is null));
 
     private string? SlotHotkey(int slot) => Services.HotkeyService.SlotHotkeyText(S, slot);
 

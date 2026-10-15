@@ -45,7 +45,12 @@ flocks you can edit, that can ask for values when they load, and that actually r
    to match, and a one-line description of what loading will do. Drives the designer's Test load and the real
    relaunch alike.
 
-### B. The designer (Settings → Flocks → Edit)
+### B. The designer (Settings → Flocks → Edit) — *first pass done* (`Views/Settings/SavedFlockEditor.cs`)
+
+Re-saving a live flock over a saved one keeps what the designer added (inputs, dismissed suggestions, each app's
+edited recipe — `SavedFlock.Recaptured`). Known gaps: clicking another Settings page while editing discards
+without asking; computed inputs show as ⟨name⟩ in Test load until phase D runs them.
+
 
 - An **Edit** button on each saved flock card opens an editor page inside the Settings window (breadcrumb back to
   Flocks), working on a copy until **Save changes**.

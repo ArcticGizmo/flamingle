@@ -56,6 +56,19 @@ internal sealed class SavedFlockService(string path, ZoneContainerService zones)
                        + (gaps > 0 ? $" {gaps} may not relaunch cleanly — see Settings → Flocks." : ""));
     }
 
+    /// <summary>Store an edit from the designer.</summary>
+    public void Update(SavedFlock flock)
+    {
+        _saved = _saved.Update(flock);
+        if (!_file.Save(_saved))
+        {
+            Notice?.Invoke($"Couldn't write {Path.GetFileName(_file.Path)}.");
+            return;
+        }
+        Changed?.Invoke();
+        Notice?.Invoke($"Saved your changes to \"{flock.Name}\".");
+    }
+
     public void Delete(Guid id)
     {
         _saved = _saved.Remove(id);

@@ -291,6 +291,43 @@ public sealed class SavedFlockTemplateTests : IDisposable
         Assert.Equal("${folder2}", recipe.StartIn);
     }
 
+    // ---- Re-saving and editing ----
+
+    [Fact]
+    public void Re_saving_keeps_inputs_dismissals_and_each_apps_edits()
+    {
+        var first = Window("Code", "-n", recipe: new LaunchRecipe(LaunchKind.Program, @"C:\Apps\Code.exe", "${folder} --one"));
+        var second = Window("Code", "-n", recipe: new LaunchRecipe(LaunchKind.Program, @"C:\Apps\Code.exe", "${folder} --two"));
+        var edited = Flock([first, Window("Edge"), second], new FlockInput("folder", "Folder", InputKind.Folder)) with
+        {
+            Dismissed = [@"C:\logs"],
+        };
+        var saved = SavedFlocks.Empty.Save(edited, out _);
+
+        var recaptured = new SavedFlock(Guid.NewGuid(), "dev", DateTimeOffset.Now,
+            [Window("Code", "-n"), Window("Code", "-n"), Window("Terminal")]);
+        var after = Assert.Single(saved.Save(recaptured, out var replaced).Flocks);
+
+        Assert.True(replaced);
+        Assert.Equal(edited.Id, after.Id);
+        Assert.Equal(["folder"], after.InputList.Select(i => i.Name));
+        Assert.Equal([@"C:\logs"], after.DismissedList);
+        Assert.Equal(["${folder} --one", "${folder} --two", ""], after.Windows.Select(w => w.EffectiveRecipe().Arguments));
+        Assert.Equal(3, after.Windows.Count);
+    }
+
+    [Fact]
+    public void Update_replaces_by_id()
+    {
+        var a = Flock([Window("A")]);
+        var b = Flock([Window("B")]) with { Name = "Other" };
+        var saved = SavedFlocks.Empty.Save(a, out _).Save(b, out _);
+
+        var updated = saved.Update(a with { Name = "Renamed" });
+
+        Assert.Equal(["Renamed", "Other"], updated.Flocks.Select(f => f.Name));
+    }
+
     // ---- Load plan ----
 
     [Fact]

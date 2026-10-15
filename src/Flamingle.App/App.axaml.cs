@@ -211,6 +211,7 @@ public partial class App : Application
             SavedFlocks = () => _saved?.All ?? [],
             SaveFlock = group => _saved?.Save(group),
             DeleteSavedFlock = id => _saved?.Delete(id),
+            UpdateSavedFlock = flock => _saved?.Update(flock),
             LayoutIdFor = monitor => ZoneLayout.ById(_containers?.LayoutIdFor(monitor) ?? _settings.LayoutIdFor(monitor.DeviceName)).Id,
             ApplyLayout = ApplyLayout,
             ShowZones = monitor => _zones?.Preview(monitor),

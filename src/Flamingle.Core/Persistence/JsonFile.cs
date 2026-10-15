@@ -19,6 +19,9 @@ public sealed class JsonFile<T>(string path) where T : class
 
     public string Path { get; } = path;
 
+    /// <summary>A value as this file would store it (e.g. to show it).</summary>
+    public static string ToJson(T value) => JsonSerializer.Serialize(value, Json);
+
     public T Load(T fallback)
     {
         try
