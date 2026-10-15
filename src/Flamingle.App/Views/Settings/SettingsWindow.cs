@@ -48,6 +48,10 @@ internal sealed class SettingsWindow : Window
 {
     private const double NavWidth = 178;
 
+    // Every page (and the designer) is centred in the content area and grows up to this width.
+    private const double PageMaxWidth = 1000;
+    private static readonly Thickness PageMargin = new(32, 20, 32, 32);
+
     private readonly SettingsHost _host;
     private readonly Dictionary<string, (ScrollViewer Page, Action<StackPanel> Build)> _pages = [];
     private readonly List<(string Key, Button Item)> _nav = [];
@@ -67,8 +71,8 @@ internal sealed class SettingsWindow : Window
         _host = host;
         Title = $"Flamingle{AppProfile.DisplaySuffix} Settings";
         Icon = TrayIconArt.Product();
-        Width = 920;
-        Height = 660;
+        Width = 1080;
+        Height = 700;
         MinWidth = 720;
         MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -132,7 +136,7 @@ internal sealed class SettingsWindow : Window
         _editor = new SavedFlockEditor(flock, _host.UpdateSavedFlock, () => Select("flocks"));
         _editorPage.Content = new Border
         {
-            Margin = new Thickness(24, 20, 24, 24), MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left, Child = _editor,
+            Margin = PageMargin, MaxWidth = PageMaxWidth, HorizontalAlignment = HorizontalAlignment.Stretch, Child = _editor,
         };
         _editorPage.IsVisible = true;
     }
@@ -184,7 +188,7 @@ internal sealed class SettingsWindow : Window
     private void Rebuild(string key)
     {
         var (page, build) = _pages[key];
-        var body = new StackPanel { Margin = new Thickness(24, 20, 24, 24), MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
+        var body = new StackPanel { Margin = PageMargin, MaxWidth = PageMaxWidth, HorizontalAlignment = HorizontalAlignment.Stretch };
         build(body);
         page.Content = body;
     }
