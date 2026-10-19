@@ -60,6 +60,11 @@ jobs:
       - name: Pack with Velopack
         run: dotnet vpk pack --packId Flamingle --packTitle "Flamingle" --packVersion ${{ steps.version.outputs.VERSION }} --packDir publish/ --mainExe flamingle.exe --icon src/Flamingle.App/Assets/flamingle.ico --outputDir releases/
 
+      # install.ps1 is how most people install, so a broken one stops the release. Runs after the pack so its
+      # download test has a real Flamingle-win-Setup.exe in releases/ to serve.
+      - name: Test install.ps1
+        run: powershell -NoProfile -File tools/test-install.ps1
+
       # Everything in releases/: Flamingle-win-Setup.exe, the Velopack update feed (nupkg + RELEASES +
       # releases.win.json) for a future in-app updater, and the portable .zip.
       - name: Upload Windows artifacts
