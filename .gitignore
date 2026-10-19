@@ -6,6 +6,7 @@ obj/
 *.user
 artifacts/
 publish/
+releases/
 
 # Rider / VS
 .idea/

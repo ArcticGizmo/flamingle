@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Read-only by default: the build job compiles untrusted-ish inputs (NuGet packages, the toolchain) and never
+# needs to write. Only the final `release` job is granted contents: write, to create the GitHub Release.
+# Every action is pinned to a commit SHA (the version is in the trailing comment); Dependabot proposes bumps.
+# Ported from Perch (Windows only).
+permissions:
+  contents: read
+
+# The build job produces artifacts but does NOT touch the GitHub Release. The `release` job `needs` it, so a
+# failed build means no release is published (rather than a half-populated one).
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The SDK comes from global.json, so CI builds with the same SDK as a local build.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      # vpk is pinned in .config/dotnet-tools.json (to the Velopack library version the app references).
+      - name: Restore vpk CLI
+        run: dotnet tool restore
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=$($env:GITHUB_REF_NAME -replace '^v','')" >> $env:GITHUB_OUTPUT
+
+      # The tag is the version that ships, but the csproj and CHANGELOG.md should agree with it (/bump-version
+      # keeps them in step). A mismatch means the bump wasn't committed, so the in-app "what's new" would be wrong.
+      - name: Check csproj and changelog match the tag
+        run: |
+          $v = '${{ steps.version.outputs.VERSION }}'
+          $csproj = (Select-Xml -Path src/Flamingle.App/Flamingle.App.csproj -XPath '//Version').Node.InnerText
+          if ($csproj -ne $v) { Write-Error "Flamingle.App.csproj has <Version>$csproj</Version>, but the tag is v$v."; exit 1 }
+          if (-not (Select-String -Path CHANGELOG.md -SimpleMatch "## [v$v]" -Quiet)) { Write-Error "CHANGELOG.md has no ## [v$v] section."; exit 1 }
+
+      - name: Test
+        run: dotnet test -c Release
+
+      - name: Publish
+        run: |
+          dotnet publish src/Flamingle.App/Flamingle.App.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=embedded `
+            -p:Version=${{ steps.version.outputs.VERSION }} `
+            -o publish/
+
+      - name: Pack with Velopack
+        run: dotnet vpk pack --packId Flamingle --packTitle "Flamingle" --packVersion ${{ steps.version.outputs.VERSION }} --packDir publish/ --mainExe flamingle.exe --icon src/Flamingle.App/Assets/flamingle.ico --outputDir releases/
+
+      # Everything in releases/: Flamingle-win-Setup.exe, the Velopack update feed (nupkg + RELEASES +
+      # releases.win.json) for a future in-app updater, and the portable .zip.
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-release
+          path: releases/
+          if-no-files-found: error
+
+  release:
+    needs: [build-windows]
+    runs-on: ubuntu-latest
+    # The one job that writes: it creates the GitHub Release. It checks nothing out and builds nothing.
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+
+      # Flatten into the single flat namespace a GitHub Release has, then hash it. SHA256SUMS.txt describes
+      # exactly the bytes that get uploaded, which is why it's generated here rather than in the build job.
+      - name: Collect artifacts and generate SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          while IFS= read -r f; do
+            dest="dist/$(basename "$f")"
+            if [ -e "$dest" ]; then
+              echo "::error::Two build artifacts are both named $(basename "$f") - refusing to publish an ambiguous release."
+              exit 1
+            fi
+            mv "$f" "$dest"
+          done < <(find artifacts -type f | LC_ALL=C sort)
+
+          if [ ! -f dist/Flamingle-win-Setup.exe ]; then
+            echo "::error::Flamingle-win-Setup.exe is missing."
+            exit 1
+          fi
+
+          # Generated outside dist/ and moved in, so the manifest can never race its own glob.
+          ( cd dist && LC_ALL=C sha256sum -- * > ../SHA256SUMS.txt )
+          mv SHA256SUMS.txt dist/SHA256SUMS.txt
+
+          echo '### Published assets' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat dist/SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: dist/*
+          generate_release_notes: true

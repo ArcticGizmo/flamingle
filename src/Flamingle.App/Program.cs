@@ -2,6 +2,7 @@ using Avalonia;
 using Flamingle.App.Native;
 using Flamingle.Core;
 using Flamingle.Core.Grouping;
+using Velopack;
 
 namespace Flamingle.App;
 
@@ -12,6 +13,10 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // Velopack's install / update / uninstall hooks run (and exit) here when the installer launches us; a
+        // normal launch passes straight through. Must come first.
+        VelopackApp.Build().Run();
+
         // Headless diagnostic for tuning the snap-group heuristic: list the candidate windows and every
         // group the detector finds. Pipe it somewhere to see it (a WinExe has no console of its own):
         //   .\flamingle.exe windows | Out-String
