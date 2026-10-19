@@ -1,0 +1,60 @@
+# Changelog
+
+All notable changes to Flamingle are documented here.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+---
+
+## [Unreleased]
+
+---
+
+## [v0.1.0] - 2026-10-19
+
+First release. Windows that belong together, now kept together.
+
+### Flocks
+
+- Group windows into flocks that minimise and restore together
+- New-flock picker (Alt+Shift+G) pre-ticks windows snapped beside yours
+- Minimise / restore hotkey (Alt+Shift+M), plus slot hotkeys for flocks 1–9
+- Minimising one member takes the rest with it
+- Windows go back exactly where they were after a restore
+- Flocks survive a Flamingle restart (if their windows do)
+
+### Zones
+
+- Drag-to-snap zones: hold Shift while dragging, Ctrl to span several
+- Windows in a monitor's zones form a flock, one per virtual desktop
+- Resizing a zoned window moves its neighbours
+- Snap strip: drag to the top of a screen to pick a layout
+- Edit mode (Alt+Shift+E) on any monitor: move, split, swap, undo
+- Adjustable gaps between zones, or none
+- Windows pulled out of a layout return to their old size
+- Layouts follow side panels as they dock and close
+- Zones show on one monitor at a time (USB docks send their thanks)
+- Layouts stay with their monitor across wakes and redocks (Windows renumbers them for fun)
+
+### Saved flocks
+
+- Save a flock; relaunch its apps later, windows back in place
+- Design saved flocks on screen, or edit them as a form
+- Load a saved flock onto any monitor
+- Per-window launch recipes: program, Store app, or an already-open window
+- Inputs for saved flocks (they take their defaults until the prompt arrives)
+
+### Taskbar
+
+- A taskbar button per flock: click to minimise or restore
+- Previews show the flock's windows as laid out on screen
+- Hovering the button outlines the flock's windows
+- Buttons follow their flock across virtual desktops
+- Flamingle icon numbered by monitor, or a mosaic of app icons
+
+### Settings
+
+- Settings window, one click on the tray icon away
+- Turn off Windows' own snap layouts (they were here first)
+- Changelog page, plus a what's-new window after updates (starting next time)
+
+---

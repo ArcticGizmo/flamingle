@@ -44,6 +44,9 @@ internal sealed class SettingsHost
     public required Action<bool> SuspendHotkeys { get; init; }
     public required Action OpenDataFolder { get; init; }
     public required string Version { get; init; }
+
+    /// <summary>Pop the "what's new" window for an update from one version to another (the dev-build preview).</summary>
+    public required Action<string, string> PreviewChangelog { get; init; }
 }
 
 /// <summary>
@@ -93,6 +96,7 @@ internal sealed class SettingsWindow : Window
         AddPage(nav, "behaviour", "Behaviour", BuildBehaviour);
         AddPage(nav, "shortcuts", "Shortcuts", BuildShortcuts);
         AddPage(nav, "about", "About", BuildAbout);
+        AddPage(nav, "changelog", "Changelog", BuildChangelog);
         _content.Children.Add(_editorPage);
 
         var rail = new Border { Background = Palette.NavBg, Width = NavWidth, Child = nav };
@@ -729,5 +733,36 @@ internal sealed class SettingsWindow : Window
             $"Settings, flocks and layouts are kept in {AppProfile.DataDirectory()}. settings.json can be edited by " +
             "hand too; changes made here are written straight to it."));
         page.Children.Add(ButtonRow(FlatButton("Open data folder", _host.OpenDataFolder)));
+    }
+
+    // ---- Changelog ----
+
+    private void BuildChangelog(StackPanel page)
+    {
+        page.Children.Add(PageTitle("Changelog"));
+        page.Children.Add(Row("Show what's new after an update",
+            "On the first launch after Flamingle updates, list the releases since the version you were on.",
+            Toggle(S.ShowChangelogOnUpdate, on => Update(x => x with { ShowChangelogOnUpdate = on }))));
+
+        if (AppProfile.IsDev)
+        {
+            var from = new TextBox { Text = "v0.0.0", Width = 96, FontSize = 13 };
+            var to = new TextBox { Text = "v" + _host.Version, Width = 96, FontSize = 13 };
+            var range = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            range.Children.Add(from);
+            range.Children.Add(new TextBlock { Text = "→", Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Center });
+            range.Children.Add(to);
+            range.Children.Add(FlatButton("Preview window", () => _host.PreviewChangelog(from.Text ?? "", to.Text ?? "")));
+            page.Children.Add(Row("Preview (dev builds)",
+                "The window an update between these versions would show — after the first, up to and including the second.",
+                range));
+        }
+
+        if (ChangelogMarkdown.LoadEmbedded() is not { } markdown)
+        {
+            page.Children.Add(BodyText("Changelog not available."));
+            return;
+        }
+        ChangelogMarkdown.Render(page, markdown.Split('\n'));
     }
 }

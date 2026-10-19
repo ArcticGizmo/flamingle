@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
+    <!-- Embedded for Settings → Changelog and the post-update "what's new" window (read back by this logical name). -->
+    <EmbeddedResource Include="..\..\CHANGELOG.md" LogicalName="Flamingle.CHANGELOG.md" />
   </ItemGroup>
 
   <ItemGroup>

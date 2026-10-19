@@ -33,6 +33,9 @@ internal static class SettingsUi
         Foreground = Palette.Muted, Margin = new Thickness(0, 0, 0, 6),
     };
 
+    /// <summary>A thin horizontal rule.</summary>
+    public static Border Divider() => new() { Height = 1, Background = Palette.Line, Margin = new Thickness(0, 10) };
+
     public static Button FlatButton(string text, Action onClick)
     {
         var button = new Button

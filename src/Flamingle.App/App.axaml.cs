@@ -3,11 +3,13 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using Flamingle.App.Native;
 using Flamingle.App.Services;
 using Flamingle.App.Views;
 using Flamingle.App.Views.Settings;
 using Flamingle.Core;
+using Flamingle.Core.Changelog;
 using Flamingle.Core.Geometry;
 using Flamingle.Core.Grouping;
 using Flamingle.Core.Persistence;
@@ -35,6 +37,7 @@ public partial class App : Application
     private TrayIcon? _tray;
     private PickerWindow? _picker;
     private SettingsWindow? _settingsWindow;
+    private ChangelogWindow? _changelogWindow;
 
     private static string Version
     {
@@ -60,6 +63,11 @@ public partial class App : Application
             var dataDir = AppProfile.DataDirectory();
             _settingsFile = new JsonFile<AppSettings>(Path.Combine(dataDir, "settings.json"));
             _settings = _settingsFile.Load(AppSettings.Default);
+            // First launch after an update: pick the changelog entries newer than the version that last ran here,
+            // then stamp this version so they're shown only once. No last-seen version is a fresh install —
+            // seeded silently, nothing to show.
+            var whatsNew = PendingChangelog(_settings);
+            _settings = _settings with { LastSeenVersion = Version };
             // Write the settings back so the file always shows every option (including newly added ones).
             _settingsFile.Save(_settings);
 
@@ -145,6 +153,9 @@ public partial class App : Application
             ApplyHotkeys();
 
             SetupTray(desktop);
+
+            if (whatsNew is { Count: > 0 })
+                Dispatcher.UIThread.Post(() => ShowChangelog(UpdatedSubhead(whatsNew), whatsNew), DispatcherPriority.Background);
 
             desktop.Exit += (_, _) =>
             {
@@ -252,6 +263,7 @@ public partial class App : Application
             },
             OpenDataFolder = OpenDataFolder,
             Version = Version,
+            PreviewChangelog = PreviewChangelog,
         }, page ?? "flocks");
         window.Closed += (_, _) => { if (ReferenceEquals(_settingsWindow, window)) _settingsWindow = null; };
         _settingsWindow = window;
@@ -396,6 +408,41 @@ public partial class App : Application
     }
 
     private void SaveFlocks() => _flocksFile?.Save(FlockSnapshot.From(_registry));
+
+    /// <summary>The changelog sections to show on this launch: none unless the pop-up is on and a different version
+    /// ran here last — then only the releases in between.</summary>
+    private static IReadOnlyList<ChangelogSection>? PendingChangelog(AppSettings settings)
+    {
+        if (!settings.ShowChangelogOnUpdate || string.IsNullOrWhiteSpace(settings.LastSeenVersion)) return null;
+        if (settings.LastSeenVersion == Version || ChangelogMarkdown.LoadEmbedded() is not { } markdown) return null;
+        return ChangelogParser.UnseenSince(markdown, settings.LastSeenVersion, Version);
+    }
+
+    private static string UpdatedSubhead(IReadOnlyList<ChangelogSection> sections) => sections.Count == 1
+        ? $"Updated to {sections[0].Display}."
+        : $"Updated to {sections[0].Display} — {sections.Count} releases since {sections[^1].Display}.";
+
+    private void ShowChangelog(string subhead, IReadOnlyList<ChangelogSection> sections)
+    {
+        _changelogWindow?.Close();
+        var window = new ChangelogWindow(subhead, sections,
+            onSuppress: () => UpdateSettings(_settings with { ShowChangelogOnUpdate = false }));
+        window.Closed += (_, _) => { if (ReferenceEquals(_changelogWindow, window)) _changelogWindow = null; };
+        _changelogWindow = window;
+        window.Show();
+        window.Activate();
+    }
+
+    /// <summary>Settings → Changelog (Debug builds): the window an update from one version to another would show,
+    /// empty range included.</summary>
+    private void PreviewChangelog(string from, string to)
+    {
+        if (ChangelogMarkdown.LoadEmbedded() is not { } markdown) return;
+        var sections = ChangelogParser.UnseenSince(markdown, from, to);
+        ShowChangelog(sections.Count == 0
+            ? $"Nothing between {from} and {to}."
+            : $"Preview: {from} → {to} ({sections.Count} release{(sections.Count == 1 ? "" : "s")}).", sections);
+    }
 
     private static void OpenDataFolder()
     {

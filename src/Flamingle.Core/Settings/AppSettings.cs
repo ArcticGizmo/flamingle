@@ -113,6 +113,16 @@ public sealed record AppSettings
     /// Settings › Flocks.</summary>
     public bool DesignModeEditing { get; init; } = true;
 
+    // ---- Changelog ----
+
+    /// <summary>On the first launch after an update, pop a "what's new" window listing only the releases since
+    /// <see cref="LastSeenVersion"/>. Its "Don't show changelogs again" button turns this off.</summary>
+    public bool ShowChangelogOnUpdate { get; init; } = true;
+
+    /// <summary>The version that last ran here (e.g. <c>0.1.0</c>), stamped at startup — how an update is spotted.
+    /// Null on a fresh install, which is seeded silently (nothing to show).</summary>
+    public string? LastSeenVersion { get; init; }
+
     public string LayoutIdFor(string deviceName)
         => ZoneLayouts.TryGetValue(deviceName, out var id) ? id : Zones.ZoneLayout.DefaultId;
 
