@@ -68,6 +68,7 @@ public partial class App : Application
             _registry.Load(_flocksFile.Load(FlockSnapshot.Empty).ToGroups(WindowQuery.IsAlive));
             _registry.Changed += OnRegistryChanged;
             SaveFlocks();
+            AdoptStableMonitorKeys();
 
             _controller = new FlockController(_registry, _hooks, () => _settings);
             _controller.Notice += ToastWindow.Show;
@@ -325,13 +326,25 @@ public partial class App : Application
         _containers?.ReflowAll();
     }
 
-    /// <summary>Pick a monitor's layout (from settings or a layout chip): remember it, re-flow the windows
-    /// already in its zones, and flash the new zones.</summary>
+    /// <summary>Pick a monitor's layout (from settings or a layout chip): remember it, and re-flow the windows
+    /// already in its zones.</summary>
     private void ApplyLayout(MonitorInfo monitor, string layoutId)
     {
         UpdateSettings(_settings.WithLayout(monitor.DeviceName, layoutId));
         _containers?.SetLayout(monitor, layoutId);
-        _zones?.Preview(monitor);
+    }
+
+    /// <summary>Per-monitor state used to be keyed by the monitor's GDI name (<c>\\.\DISPLAY3</c>), which it loses
+    /// every time it reconnects. Carry what's saved under a connected monitor's GDI name over to its stable key.</summary>
+    private void AdoptStableMonitorKeys()
+    {
+        foreach (var m in Monitors.All())
+        {
+            if (m.GdiName is not { } gdi || gdi == m.DeviceName) continue;
+            if (_settings.ZoneLayouts.TryGetValue(gdi, out var layout) && !_settings.ZoneLayouts.ContainsKey(m.DeviceName))
+                UpdateSettings(_settings.WithLayout(m.DeviceName, layout));
+            _registry.RehomeZoneFlocks(gdi, m.DeviceName, g => FlockController.ZoneFlockName(m.DeviceName, g.ZoneDesktop));
+        }
     }
 
     private void ShowPicker()

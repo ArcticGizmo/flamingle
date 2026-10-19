@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia.Threading;
 using Flamingle.App.Native;
 using Flamingle.App.Views;
@@ -10,7 +11,8 @@ namespace Flamingle.App.Services;
 /// <summary>
 /// FancyZones-style drag-to-snap. When the user starts dragging any app window (a WinEvent
 /// <c>MOVESIZESTART</c>), this polls the cursor and modifier keys at ~60 Hz. While the zone modifier is
-/// held (Shift by default), every monitor shows its zones and the one under the cursor lights up; holding
+/// held (Shift by default), the monitor under the cursor (or every monitor — <see cref="AppSettings.ZonesOnEveryMonitor"/>)
+/// shows its zones and the one under the cursor lights up; holding
 /// Ctrl as well spans from the zone where Ctrl went down to the current one. On drop (<c>MOVESIZEEND</c>)
 /// the window is fitted to the highlighted zone(s). Resizes are recognised and ignored.
 /// </summary>
@@ -55,6 +57,13 @@ internal sealed class ZoneDragService : IDisposable
         // The snap strip: what's picked in it (null when nothing is).
         public StripPick? Strip { get; set; }
         public int StripAnchor { get; set; } = -1;
+
+        // Timing, for the debug log: is the UI thread keeping up while the zones are showing?
+        public int Ticks { get; set; }
+        public long LastTick { get; set; }
+        public double SlowestTickMs { get; set; }
+        public double LongestGapMs { get; set; }
+        public double ShowZonesMs { get; set; }
     }
 
     private sealed record StripPick(MonitorInfo Monitor, string LayoutId, IReadOnlyList<int> Selection);
@@ -85,7 +94,7 @@ internal sealed class ZoneDragService : IDisposable
         _hooks.MoveSizeEnded += OnMoveSizeEnded;
     }
 
-    /// <summary>Flash a monitor's zones for a moment — used when the user picks a new layout.</summary>
+    /// <summary>Flash a monitor's zones for a moment — Settings' "Show zones".</summary>
     public void Preview(MonitorInfo monitor)
     {
         if (_drag is not null) return;
@@ -119,6 +128,20 @@ internal sealed class ZoneDragService : IDisposable
     }
 
     private void Tick()
+    {
+        var drag = _drag;
+        var start = Stopwatch.GetTimestamp();
+        TickCore();
+        if (drag is null) return;
+
+        drag.Ticks++;
+        drag.SlowestTickMs = Math.Max(drag.SlowestTickMs, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        if (drag.LastTick != 0)
+            drag.LongestGapMs = Math.Max(drag.LongestGapMs, Stopwatch.GetElapsedTime(drag.LastTick, start).TotalMilliseconds);
+        drag.LastTick = start;
+    }
+
+    private void TickCore()
     {
         var drag = _drag;
         if (drag is null) { _timer.Stop(); return; }
@@ -162,13 +185,14 @@ internal sealed class ZoneDragService : IDisposable
         var monitor = drag.Monitors.FirstOrDefault(m => m.Contains(cursor.x, cursor.y));
         if (monitor is null) { ClearSelection(drag); return; }
 
-        if (_overlays.Count == 0) ShowOverlays(drag);
         if (drag.Monitor?.Handle != monitor.Handle)
         {
             drag.Monitor = monitor;
             drag.Zones = _containers.ZonesFor(monitor);
             drag.SpanAnchor = -1;
+            if (!_settings().ZonesOnEveryMonitor) HideOverlays();   // the zones move to the new monitor
         }
+        if (_overlays.Count == 0) ShowOverlays(drag, monitor);
 
         var hit = ZoneMath.HitTest(drag.Zones, cursor.x, cursor.y, monitor.WorkArea);
         if (Win32.IsKeyDown(Win32.VK_CONTROL))
@@ -473,14 +497,18 @@ internal sealed class ZoneDragService : IDisposable
         return !string.Equals(key, "none", StringComparison.OrdinalIgnoreCase) && key.Length > 0 && ModifierHeld(key);
     }
 
-    private void ShowOverlays(Drag drag)
+    /// <summary>The zones on the monitor being dragged over — or on every monitor, with
+    /// <see cref="AppSettings.ZonesOnEveryMonitor"/>.</summary>
+    private void ShowOverlays(Drag drag, MonitorInfo monitor)
     {
-        foreach (var m in drag.Monitors)
+        var start = Stopwatch.GetTimestamp();
+        foreach (var m in _settings().ZonesOnEveryMonitor ? drag.Monitors : [monitor])
         {
             var overlay = new ZoneOverlayWindow(m, _containers.ZonesFor(m), LayoutCaption(m));
             overlay.Show();
             _overlays.Add(overlay);
         }
+        drag.ShowZonesMs = Math.Max(drag.ShowZonesMs, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
     }
 
     private string LayoutCaption(MonitorInfo monitor)
@@ -495,6 +523,9 @@ internal sealed class ZoneDragService : IDisposable
 
     private void EndDrag()
     {
+        if (_drag is { Ticks: > 0 } d && d.ShowZonesMs > 0)
+            DebugLog.Write($"zone drag 0x{d.Hwnd:X}: {d.Ticks} ticks, slowest {d.SlowestTickMs:F1} ms, longest gap " +
+                           $"{d.LongestGapMs:F1} ms (16 expected), showing zones {d.ShowZonesMs:F1} ms");
         _timer.Stop();
         _drag = null;
         HideOverlays();

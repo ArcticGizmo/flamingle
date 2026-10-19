@@ -99,7 +99,20 @@ internal sealed class ZoneContainerService : IDisposable
         // Window moves during a handle drag are coalesced to one batch per frame.
         _apply = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(16) };
         _apply.Tick += (_, _) => ApplyPendingDrag();
+
+        _displaySettle = new DispatcherTimer { Interval = DisplaySettleDelay };
+        _displaySettle.Tick += (_, _) =>
+        {
+            _displaySettle.Stop();
+            DisplaysSettled();
+        };
     }
+
+    // A display change (a monitor plugged in or out, waking from sleep) comes as a burst of half-finished states — a
+    // USB dock's monitors drop out on sleep and come back seconds after the wake. Layouts act once it's been quiet
+    // this long, never on the states in between.
+    private static readonly TimeSpan DisplaySettleDelay = TimeSpan.FromMilliseconds(1500);
+    private readonly DispatcherTimer _displaySettle;
 
     /// <summary>A window was put into a layout's zones (by drag, or "fill with open windows").</summary>
     public event Action<IntPtr, MonitorInfo>? Slotted;
@@ -162,9 +175,13 @@ internal sealed class ZoneContainerService : IDisposable
         var monitors = Monitors.All();
         foreach (var state in _file.Load([]))
         {
-            var monitor = monitors.FirstOrDefault(m => m.DeviceName == state.DeviceName);
+            // (Older versions saved the monitor's GDI name.)
+            var monitor = monitors.FirstOrDefault(m => m.DeviceName == state.DeviceName)
+                          ?? monitors.FirstOrDefault(m => m.GdiName == state.DeviceName);
             if (monitor is null) continue;   // that monitor's gone; forget the container
+            if (ContainerOn(monitor.DeviceName) is not null) continue;
             var c = state.ToContainer(IsAlive);
+            c.DeviceName = monitor.DeviceName;
             // A side panel may have docked or closed since the last run.
             c.Frame = state.WorkArea is { } then
                 ? ZoneContainer.Refit(c.Frame, then, monitor.WorkArea)
@@ -189,8 +206,8 @@ internal sealed class ZoneContainerService : IDisposable
         _broadcasts.SettingChanged += OnSettingChanged;
         _broadcasts.DisplayChanged += () =>
         {
-            Dispatcher.UIThread.Post(FollowWorkAreas);
-            ScheduleSync();
+            Monitors.Forget();
+            RestartDisplaySettle();
         };
         _broadcasts.HotkeyPressed += id =>
         {
@@ -424,8 +441,46 @@ internal sealed class ZoneContainerService : IDisposable
 
     private void OnSettingChanged(uint what)
     {
-        // Act once the broadcast has been delivered (it's a sent message — don't move windows inside it).
-        if (what == SPI_SETWORKAREA) Dispatcher.UIThread.Post(FollowWorkAreas);
+        if (what != SPI_SETWORKAREA) return;
+        // Part of a display change: wait for that to settle. Otherwise an app bar came or went — follow it now, once
+        // the broadcast has been delivered (it's a sent message — don't move windows inside it).
+        if (_displaySettle.IsEnabled) RestartDisplaySettle();
+        else Dispatcher.UIThread.Post(FollowWorkAreas);
+    }
+
+    private void RestartDisplaySettle()
+    {
+        _displaySettle.Stop();
+        _displaySettle.Start();
+    }
+
+    /// <summary>
+    /// The displays have stopped changing. Layouts follow any work area that changed, then every layout on a connected
+    /// monitor puts its windows back: Windows moves windows off a monitor that goes away and doesn't reliably bring
+    /// them back, so after a sleep they'd be left wherever it dumped them. A layout whose monitor is still missing
+    /// waits for it (the next display change).
+    /// </summary>
+    private void DisplaysSettled()
+    {
+        var monitors = Monitors.All();
+        DebugLog.Write("displays settled: " + string.Join(", ", monitors.Select(m => $"{m.ShortName}={m.DeviceName} {m.WorkArea}")));
+        FollowWorkAreas();
+        ReflowConnected();
+        // Windows may still be putting windows back itself; go round once more after it's done.
+        DispatcherTimer.RunOnce(ReflowConnected, TimeSpan.FromMilliseconds(1500));
+        SyncHandles();
+    }
+
+    private void ReflowConnected()
+    {
+        if (_displaySettle.IsEnabled) return;   // more changes on the way
+        Prune();
+        var monitors = Monitors.All();
+        foreach (var c in _containers)
+        {
+            if (_drag?.Container == c || _resize?.Container == c) continue;
+            if (monitors.Any(m => m.DeviceName == c.DeviceName)) Reflow(c);
+        }
     }
 
     private void ShowHandles(ZoneContainer c, MonitorInfo? monitor)
@@ -1078,6 +1133,7 @@ internal sealed class ZoneContainerService : IDisposable
     {
         _sync.Stop();
         _apply.Stop();
+        _displaySettle.Stop();
         ExitEdit();
         foreach (var c in _handles.Keys.ToList()) HideHandles(c);
         _broadcasts?.Dispose();

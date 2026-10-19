@@ -29,6 +29,10 @@ internal static class Program
 
     private static int RunListWindows()
     {
+        Console.WriteLine("Monitors:");
+        foreach (var m in Monitors.All())
+            Console.WriteLine($"  {m.ShortName,-12} {m.Bounds.Width}x{m.Bounds.Height} @ {m.Bounds.X},{m.Bounds.Y}  key {m.DeviceName}");
+
         var windows = WindowQuery.Candidates();
         Console.WriteLine($"{windows.Count} candidate window(s), topmost first:");
         foreach (var w in windows)

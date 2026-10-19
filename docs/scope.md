@@ -67,8 +67,12 @@ A lightweight tray app that lets you treat a set of windows as a single parent "
 
 FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on PowerToys.
 
-- Hold a modifier (Shift) while dragging and the zones show on every monitor. Drop snaps the window
-  into a zone; Ctrl spans several zones.
+- Hold a modifier (Shift) while dragging and the zones show on the monitor under the cursor (every monitor is a
+  toggle — full-screen overlays are costly on USB/DisplayLink monitors). Drop snaps the window into a zone; Ctrl
+  spans several zones.
+- Monitors are keyed by their PnP instance id, not `\\.\DISPLAYn` (which Windows renumbers whenever a monitor
+  reconnects — a USB dock does it on every wake). After a display change settles, every layout on a connected
+  monitor puts its windows back.
 - Each monitor gets one of a set of built-in layout templates, chosen from the tray. No editor yet.
 - Dragging a window to the top of a monitor drops down a *snap strip* of layouts (toggle) — Flamingle's take on
   Windows' snap bar, which should be turned off alongside it. Dropping on a zone of another layout switches the

@@ -232,7 +232,7 @@ internal sealed class FlockController
             ? $"Zones · {ShortName(deviceName)} · {label}"
             : $"Zones · {ShortName(deviceName)}";
 
-    private static string ShortName(string deviceName) => deviceName.TrimStart('\\', '.');
+    private static string ShortName(string deviceName) => Monitors.ShortNameOf(deviceName);
 
     /// <summary>The desktop a window's zone flock is keyed by — null with per-desktop zone flocks off.</summary>
     private Guid? ZoneDesktopOf(IntPtr hwnd)

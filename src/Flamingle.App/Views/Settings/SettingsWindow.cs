@@ -447,6 +447,11 @@ internal sealed class SettingsWindow : Window
                 i => Update(x => x with { ZoneDragModifier = modifiers[i] })),
             s.ZonesEnabled));
 
+        page.Children.Add(Row("Show zones on every monitor",
+            "Off shows them only on the monitor you're dragging over — smoother, especially on USB-dock monitors.",
+            Toggle(s.ZonesOnEveryMonitor, on => Update(x => x with { ZonesOnEveryMonitor = on })),
+            s.ZonesEnabled));
+
         page.Children.Add(Row("Zoned windows form a flock",
             "Windows dropped into a monitor's zones minimise and restore together.",
             Toggle(s.ZonesFormFlock, on => Update(x => x with { ZonesFormFlock = on }))));
