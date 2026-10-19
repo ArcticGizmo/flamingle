@@ -97,10 +97,22 @@ internal sealed class FlockController
         if (members.Count == 0) return;
 
         var focusInFlock = group.Contains(LastFocus) && !Win32.IsIconic((IntPtr)LastFocus);
-        var action = ToggleDecision.Decide(members.Select(h => Win32.IsIconic((IntPtr)h)).ToList(), focusInFlock);
+        var minimised = members.Select(h => Win32.IsIconic((IntPtr)h)).ToList();
+        var covered = !focusInFlock && !minimised.Any(m => m) && IsCovered(members);
+        var action = ToggleDecision.Decide(minimised, focusInFlock, covered);
+        DebugLog.Write($"toggle \"{group.Name}\": focus in flock={focusInFlock}, covered={covered} → {action}");
 
         if (action == FlockAction.Minimise) Minimise(group);
         else Restore(group);
+    }
+
+    /// <summary>Is any other app window over part of the flock? (Always-on-top windows don't count.)</summary>
+    private static bool IsCovered(IReadOnlyCollection<long> members)
+    {
+        var windows = WindowQuery.Candidates()
+            .Where(w => ((long)Win32.GetWindowLongPtrW((IntPtr)w.Handle, Win32.GWL_EXSTYLE) & Win32.WS_EX_TOPMOST) == 0)
+            .ToList();
+        return ToggleDecision.IsCovered(windows, members.ToHashSet());
     }
 
     /// <summary>Minimise every member, remembering Z-order and positions for the restore.</summary>

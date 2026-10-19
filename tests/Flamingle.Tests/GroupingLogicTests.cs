@@ -1,4 +1,6 @@
+using Flamingle.Core.Geometry;
 using Flamingle.Core.Grouping;
+using Flamingle.Core.Windows;
 
 namespace Flamingle.Tests;
 
@@ -18,7 +20,34 @@ public class ToggleDecisionTests
 
     [Fact]
     public void Up_but_behind_another_app_is_raised_not_minimised() =>
-        Assert.Equal(FlockAction.Restore, ToggleDecision.Decide([false, false], focusInFlock: false));
+        Assert.Equal(FlockAction.Restore, ToggleDecision.Decide([false, false], focusInFlock: false, covered: true));
+
+    [Fact]
+    public void Up_in_plain_view_minimises_even_without_focus() =>
+        Assert.Equal(FlockAction.Minimise, ToggleDecision.Decide([false, false], focusInFlock: false, covered: false));
+
+    private static WindowSnapshot W(long handle, int x, int y, int w, int h, bool minimised = false)
+        => new(handle, 1, "app", "title", new PixelRect(x, y, w, h), minimised, false, 0);
+
+    [Fact]
+    public void A_window_on_another_monitor_does_not_cover() =>
+        Assert.False(ToggleDecision.IsCovered([W(9, -1920, 0, 1920, 1032), W(1, 0, 0, 960, 1032), W(2, 960, 0, 960, 1032)], new HashSet<long> { 1, 2 }));
+
+    [Fact]
+    public void A_window_above_a_member_covers() =>
+        Assert.True(ToggleDecision.IsCovered([W(1, 0, 0, 960, 1032), W(9, 500, 300, 800, 600), W(2, 960, 0, 960, 1032)], new HashSet<long> { 1, 2 }));
+
+    [Fact]
+    public void A_window_below_the_flock_does_not_cover() =>
+        Assert.False(ToggleDecision.IsCovered([W(1, 0, 0, 960, 1032), W(2, 960, 0, 960, 1032), W(9, 500, 300, 800, 600)], new HashSet<long> { 1, 2 }));
+
+    [Fact]
+    public void A_neighbour_that_only_touches_does_not_cover() =>
+        Assert.False(ToggleDecision.IsCovered([W(9, 952, 0, 960, 1032), W(1, 0, 0, 960, 1032)], new HashSet<long> { 1 }));
+
+    [Fact]
+    public void A_minimised_window_does_not_cover() =>
+        Assert.False(ToggleDecision.IsCovered([W(9, 0, 0, 1920, 1032, minimised: true), W(1, 0, 0, 960, 1032)], new HashSet<long> { 1 }));
 }
 
 public class ZOrderTests
