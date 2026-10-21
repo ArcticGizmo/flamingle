@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.2.0] - 2026-10-21
+
+### Changed
+
+- Installer halved, 50 MB → 25 MB (most of it was .NET we never called)
+
+---
+
 ## [v0.1.2] - 2026-10-21
 
 ### Added

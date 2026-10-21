@@ -11,13 +11,31 @@
     <Product>Flamingle</Product>
     <Company>Flamingle</Company>
     <Description>Group windows so they minimise, restore, move and relaunch together.</Description>
-    <Version>0.1.2</Version>
+    <Version>0.2.0</Version>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <!-- Per-monitor DPI aware (v2): every coordinate Flamingle reads or writes is in physical pixels. -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Generated from flamingle.svg by tools/gen-icons.ps1 — don't edit the rasters by hand. -->
     <ApplicationIcon>Assets\flamingle.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <!-- Size: a self-contained publish trims the framework down to what's used (exe 40 MB → ~15 MB). Persisted types
+       are source-generated (Core's FlamingleJson) since trimming turns off reflection JSON. -->
+  <PropertyGroup>
+    <PublishTrimmed>true</PublishTrimmed>
+    <!-- Native/ uses classic [ComImport] interop, which trimming switches off by default. Our assembly is rooted
+         (below) so those interfaces keep every member and their vtable order, which is what IL2050 warns about. -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <NoWarn>$(NoWarn);IL2050</NoWarn>
+    <!-- Built-in COM also keeps the framework's COM *server* activator, which the trimmer always warns about (IL2026)
+         and we never use. So publish-time trim warnings stay warnings; our own code is still held to warnings-as-errors
+         by the trim analyzer at build time (here and in Core, which is IsTrimmable). -->
+    <ILLinkTreatWarningsAsErrors>false</ILLinkTreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <TrimmerRootAssembly Include="flamingle" />
+  </ItemGroup>
 
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />

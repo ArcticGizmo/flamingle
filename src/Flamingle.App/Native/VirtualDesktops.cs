@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
@@ -85,6 +86,8 @@ internal static class VirtualDesktops
         }
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2072",
+        Justification = "A COM class from its CLSID: built-in COM creates it, no constructor of ours is involved.")]
     private static IVirtualDesktopManager? Manager()
     {
         if (_manager is not null) return _manager;

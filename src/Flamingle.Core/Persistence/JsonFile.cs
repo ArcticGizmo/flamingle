@@ -1,21 +1,20 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Flamingle.Core.Persistence;
 
 /// <summary>
 /// A forgiving JSON file: a missing, unreadable or malformed file loads as the fallback rather than throwing
 /// (state should never stop the app starting), and a failed save returns false. The path is injectable so
-/// it's headless-testable.
+/// it's headless-testable. <typeparamref name="T"/> must be listed in <see cref="FlamingleJson"/>.
 /// </summary>
 public sealed class JsonFile<T>(string path) where T : class
 {
-    private static readonly JsonSerializerOptions Json = new()
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-        PropertyNameCaseInsensitive = true,
-    };
+    // Resolved up front (outside Load/Save's catch-alls) so an unlisted type fails loudly, not as silent data loss.
+    private static JsonTypeInfo<T> Json => field ??= FlamingleJson.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>
+        ?? throw new NotSupportedException($"Add [JsonSerializable(typeof({typeof(T).Name}))] to {nameof(FlamingleJson)}.");
+
+    private readonly JsonTypeInfo<T> _json = Json;
 
     public string Path { get; } = path;
 
@@ -27,7 +26,7 @@ public sealed class JsonFile<T>(string path) where T : class
         try
         {
             if (!File.Exists(Path)) return fallback;
-            return JsonSerializer.Deserialize<T>(File.ReadAllText(Path), Json) ?? fallback;
+            return JsonSerializer.Deserialize(File.ReadAllText(Path), _json) ?? fallback;
         }
         catch
         {
@@ -44,7 +43,7 @@ public sealed class JsonFile<T>(string path) where T : class
 
             // Write-then-swap so a crash mid-write can't leave a truncated file behind.
             var tmp = Path + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(value, Json));
+            File.WriteAllText(tmp, JsonSerializer.Serialize(value, _json));
             File.Move(tmp, Path, overwrite: true);
             return true;
         }
