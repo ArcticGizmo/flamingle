@@ -195,6 +195,10 @@ public partial class App : Application
     {
         var menu = new NativeMenu();
 
+        // Read-only, like Perch's: which Flamingle this is (the (Dev) suffix marks a dev build beside an installed one).
+        menu.Add(new NativeMenuItem($"Flamingle{AppProfile.DisplaySuffix} - {Version}") { IsEnabled = false });
+        menu.Add(new NativeMenuItemSeparator());
+
         var settings = new NativeMenuItem("Settings…");
         settings.Click += (_, _) => ShowSettings();
         menu.Add(settings);
