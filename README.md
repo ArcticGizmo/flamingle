@@ -19,7 +19,7 @@ Already know you want it? [Skip the details and install it ▼](#installing)
 
 ### At a glance
 
-- **Flocks**: pick a few windows, and one hotkey or taskbar click puts them all away or brings them all back.
+- **Flocks**: pick a few windows, and one taskbar click puts them all away or brings them all back.
 - **Zones**: hold Shift while dragging a window to snap it into a layout. Everything in a monitor's layout is
   a flock too.
 - **Saved flocks**: save a flock, and later Flamingle starts its apps and puts every window back where it
@@ -41,7 +41,8 @@ irm https://raw.githubusercontent.com/ArcticGizmo/flamingle/main/install.ps1 | i
 
 That's the whole install. No admin rights (it lands in `%LocalAppData%\Flamingle\`), a Start Menu shortcut
 and a normal uninstaller in Settings → Apps, and Flamingle starts in the tray when it's done. Click the tray
-icon to open Settings, then press `Alt+Shift+G` in any window to start your first flock.
+icon to open Settings, then press `Alt+Shift+E` to edit the layout on the monitor under the cursor. Settings →
+Behaviour can start Flamingle when you sign in.
 
 What the script does, in order: finds the latest release, fetches `SHA256SUMS.txt` and
 `Flamingle-win-Setup.exe`, **checks the installer against the checksums and deletes it rather than run it if
@@ -90,12 +91,11 @@ folder and Quit.
 
 | To | Press |
 |---|---|
-| Start a flock | `Alt+Shift+G`. A picker opens with the windows snapped beside the focused one already ticked. |
-| Put away / bring back the focused window's flock (else the last one used) | `Alt+Shift+M` |
 | Put away / bring back flock *n* | `Alt+Shift+1` … `Alt+Shift+9` |
 | Edit the layout on the monitor under the cursor | `Alt+Shift+E` (again, or Esc, to finish) |
 
-Change any of them in Settings → Shortcuts: click one and press the new combination.
+Change them in Settings → Shortcuts: click one and press the new combination. To pick windows into a flock
+by hand, use **New flock…** in Settings → Flocks.
 
 ### 1. Flocks: windows that minimise and restore together
 
@@ -115,8 +115,8 @@ Change any of them in Settings → Shortcuts: click one and press the new combin
   under the cursor; hold **Ctrl** as well to span several zones. (Settings → Zones can change the key to Alt,
   or show the zones on every drag.)
 - **Each monitor has its own layout**: 2–4 columns, 2 or 3 rows, 2×2 / 2×3 / 3×3 grids, priority
-  (25/50/25), main + side stack, half + 2×2, wide centre + corners, or one centred window. Gaps between zones
-  are on by default, and adjustable.
+  (25/50/25), main + side stack, half + 2×2, wide centre + corners, or one centred window. Zones sit flush,
+  with no gaps.
 - **A layout is a flock.** Everything in a monitor's zones minimises and restores together, with one zone
   flock per monitor per virtual desktop.
 - **Resize a zoned window by an inner edge** and the windows on the other side follow, like Windows 11 Snap

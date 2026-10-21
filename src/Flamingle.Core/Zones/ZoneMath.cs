@@ -6,13 +6,11 @@ namespace Flamingle.Core.Zones;
 public static class ZoneMath
 {
     /// <summary>
-    /// Resolve <paramref name="layout"/> onto a monitor's work area. <paramref name="spacing"/> px separates
-    /// neighbouring zones and insets the outer edge, so windows don't sit flush against each other.
-    /// Fractional edges are rounded once, from the work area's origin, so neighbours share exact edges.
+    /// Resolve <paramref name="layout"/> onto a monitor's work area. Zones sit flush against each other and the
+    /// edge. Fractional edges are rounded once, from the work area's origin, so neighbours share exact edges.
     /// </summary>
-    public static IReadOnlyList<PixelRect> Resolve(ZoneLayout layout, PixelRect workArea, int spacing)
+    public static IReadOnlyList<PixelRect> Resolve(ZoneLayout layout, PixelRect workArea)
     {
-        var half = spacing / 2.0;
         var list = new List<PixelRect>(layout.Zones.Count);
         foreach (var z in layout.Zones)
         {
@@ -23,20 +21,14 @@ public static class ZoneMath
             var right = Edge(workArea.X, workArea.Width, z.X + z.Width);
             var bottom = Edge(workArea.Y, workArea.Height, z.Y + z.Height);
 
-            // Outer edges get the full spacing; inner edges half each (so the gap between zones = spacing).
-            left += (int)Math.Round(left == workArea.X ? spacing : half);
-            top += (int)Math.Round(top == workArea.Y ? spacing : half);
-            right -= (int)Math.Round(right == workArea.Right ? spacing : half);
-            bottom -= (int)Math.Round(bottom == workArea.Bottom ? spacing : half);
-
             list.Add(PixelRect.FromEdges(left, top, Math.Max(left + 1, right), Math.Max(top + 1, bottom)));
         }
         return list;
     }
 
     /// <summary>
-    /// The zone under the point, or -1. Points in the spacing gutters snap to the nearest zone, so there
-    /// are no dead strips between zones while dragging.
+    /// The zone under the point, or -1. Points between zones (e.g. a custom split's rounding) snap to the
+    /// nearest zone, so there are no dead strips while dragging.
     /// </summary>
     public static int HitTest(IReadOnlyList<PixelRect> zones, int x, int y, PixelRect workArea)
     {

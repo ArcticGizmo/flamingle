@@ -6,14 +6,13 @@ namespace Flamingle.Core.Persistence;
 /// <summary>
 /// Flamingle used to be called Gaggle. On first run after the rename this moves the old <c>%APPDATA%\Gaggle</c>
 /// folder (or the dev one) to its new name, so existing settings and flocks carry over: <c>gaggles.json</c>
-/// becomes <c>flocks.json</c>, and the two settings keys that had "Gaggle" in them are renamed. Forgiving like
+/// becomes <c>flocks.json</c>, and the settings key that had "Gaggle" in it is renamed. Forgiving like
 /// <see cref="JsonFile{T}"/> — a failed migration returns false rather than stopping the app starting.
 /// </summary>
 public static class LegacyData
 {
     private static readonly (string From, string To)[] SettingsKeys =
     [
-        ("NewGaggleHotkey", "NewFlockHotkey"),
         ("ZonesFormGaggle", "ZonesFormFlock"),
     ];
 

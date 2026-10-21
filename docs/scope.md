@@ -77,6 +77,8 @@ FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on Po
 - Dragging a window to the top of a monitor drops down a *snap strip* of layouts (toggle) — Flamingle's take on
   Windows' snap bar, which should be turned off alongside it. Dropping on a zone of another layout switches the
   monitor to that layout.
+- Zones sit flush (no gaps — removed 2026-10-21 as rarely wanted). Global shortcuts are just edit layout and the
+  flock slots; the new-flock and minimise / restore shortcuts were dropped the same day.
 - Layouts show nothing on screen. The edit-layout shortcut (Alt+Shift+E) works on any monitor, with or without
   windows in its layout (so a layout can be set up before it's used — the frame draws its numbered zones), and puts
   the layout under the cursor into
@@ -100,7 +102,8 @@ FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on Po
 
 - Auto-detect new Snap Groups and offer to turn them into a flock.
 - Per-virtual-desktop flocks.
-- Start-up layouts (restore a layout at login).
+- Start-up layouts (restore a layout at login). Starting Flamingle itself at sign-in is done (Settings → Behaviour,
+  a `HKCU\…\Run` value).
 - CLI for scripting (`flamingle restore work`).
 
 ## Technical approach

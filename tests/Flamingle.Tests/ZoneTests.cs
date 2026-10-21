@@ -9,33 +9,24 @@ public class ZoneMathTests
     private static readonly PixelRect Work = new(0, 0, 1920, 1040);
 
     [Fact]
-    public void Two_columns_without_spacing_split_the_work_area_exactly()
+    public void Two_columns_split_the_work_area_exactly()
     {
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), Work, spacing: 0);
+        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), Work);
         Assert.Equal([new PixelRect(0, 0, 960, 1040), new PixelRect(960, 0, 960, 1040)], zones);
-    }
-
-    [Fact]
-    public void Spacing_insets_the_edges_and_separates_neighbours()
-    {
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), Work, spacing: 8);
-        Assert.Equal(PixelRect.FromEdges(8, 8, 956, 1032), zones[0]);
-        Assert.Equal(PixelRect.FromEdges(964, 8, 1912, 1032), zones[1]);
-        Assert.Equal(8, zones[1].X - zones[0].Right);
     }
 
     [Fact]
     public void Resolves_relative_to_a_non_zero_work_area()
     {
         var work = new PixelRect(-1920, 40, 1920, 1000);
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("rows-2"), work, spacing: 0);
+        var zones = ZoneMath.Resolve(ZoneLayout.ById("rows-2"), work);
         Assert.Equal([new PixelRect(-1920, 40, 1920, 500), new PixelRect(-1920, 540, 1920, 500)], zones);
     }
 
     [Fact]
     public void Three_columns_tile_without_pixel_gaps()
     {
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-3"), new PixelRect(0, 0, 1000, 500), spacing: 0);
+        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-3"), new PixelRect(0, 0, 1000, 500));
         Assert.Equal(zones[0].Right, zones[1].X);
         Assert.Equal(zones[1].Right, zones[2].X);
         Assert.Equal(1000, zones[2].Right);
@@ -44,18 +35,21 @@ public class ZoneMathTests
     [Fact]
     public void Hit_test_finds_the_zone_and_snaps_gutters_to_the_nearest()
     {
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), Work, spacing: 8);
+        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), Work);
         Assert.Equal(0, ZoneMath.HitTest(zones, 100, 500, Work));
         Assert.Equal(1, ZoneMath.HitTest(zones, 1500, 500, Work));
-        Assert.Equal(1, ZoneMath.HitTest(zones, 962, 500, Work));   // in the gutter, nearer the right
-        Assert.Equal(0, ZoneMath.HitTest(zones, 2, 2, Work));        // in the outer margin
+        Assert.Equal(1, ZoneMath.HitTest(zones, 960, 500, Work));   // on the shared edge
         Assert.Equal(-1, ZoneMath.HitTest(zones, 2000, 500, Work));  // off the work area
+
+        // A gutter between zones (e.g. a custom split's rounding) snaps to the nearer zone.
+        PixelRect[] gapped = [PixelRect.FromEdges(0, 0, 956, 1040), PixelRect.FromEdges(964, 0, 1920, 1040)];
+        Assert.Equal(1, ZoneMath.HitTest(gapped, 962, 500, Work));
     }
 
     [Fact]
     public void Span_covers_everything_between_the_two_zones()
     {
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("grid-2x3"), Work, spacing: 8);
+        var zones = ZoneMath.Resolve(ZoneLayout.ById("grid-2x3"), Work);
         // Top-left (0) to bottom-middle (4) → columns 0–1 on both rows.
         Assert.Equal([0, 1, 3, 4], ZoneMath.Span(zones, 0, 4));
         Assert.Equal([2], ZoneMath.Span(zones, 2, 2));
@@ -65,14 +59,14 @@ public class ZoneMathTests
     [Fact]
     public void Bounds_of_a_span_runs_edge_to_edge()
     {
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-3"), Work, spacing: 0);
+        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-3"), Work);
         Assert.Equal(new PixelRect(0, 0, 1280, 1040), ZoneMath.Bounds(zones, [0, 1]));
     }
 
     [Fact]
     public void Occupied_recognises_a_window_filling_zones()
     {
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-3"), Work, spacing: 0);
+        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-3"), Work);
         Assert.Equal([1, 2], ZoneMath.Occupied(zones, new PixelRect(641, 1, 1278, 1039), tolerance: 2));
         Assert.Empty(ZoneMath.Occupied(zones, new PixelRect(300, 300, 400, 400), tolerance: 2));
     }
@@ -103,16 +97,16 @@ public class ZoneContainerTests
     public void Zones_follow_the_frame_not_the_monitor()
     {
         var c = new ZoneContainer(@"\\.\DISPLAY1", "columns-2", new PixelRect(100, 50, 1000, 600));
-        Assert.Equal([new PixelRect(100, 50, 500, 600), new PixelRect(600, 50, 500, 600)], c.Zones(spacing: 0));
+        Assert.Equal([new PixelRect(100, 50, 500, 600), new PixelRect(600, 50, 500, 600)], c.Zones());
 
         c.Frame = ZoneContainer.Offset(c.Frame, 200, 100);
-        Assert.Equal(new PixelRect(300, 150, 500, 600), c.Zones(spacing: 0)[0]);
+        Assert.Equal(new PixelRect(300, 150, 500, 600), c.Zones()[0]);
     }
 
     [Fact]
     public void Target_covers_every_zone_in_the_slot()
     {
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-3"), Work, spacing: 0);
+        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-3"), Work);
         var slot = new ZoneSlot(1, 1, [0, 1]);
         Assert.Equal(new PixelRect(0, 0, 1280, 1040), ZoneContainer.TargetFor(slot, zones));
     }
@@ -120,7 +114,7 @@ public class ZoneContainerTests
     [Fact]
     public void Target_falls_back_to_the_last_zone_after_switching_to_fewer_zones()
     {
-        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), Work, spacing: 0);
+        var zones = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), Work);
         var slot = new ZoneSlot(1, 1, [2]);   // was the third of three columns
         Assert.Equal(zones[1], ZoneContainer.TargetFor(slot, zones));
     }
@@ -187,11 +181,11 @@ public class ZoneContainerTests
     {
         var c = new ZoneContainer(@"\\.\DISPLAY1", "columns-2", new PixelRect(0, 0, 1000, 500));
         c.CustomZones = [new ZoneFraction(0, 0, 0.7, 1), new ZoneFraction(0.7, 0, 0.3, 1)];
-        Assert.Equal(new PixelRect(0, 0, 700, 500), c.Zones(spacing: 0)[0]);
+        Assert.Equal(new PixelRect(0, 0, 700, 500), c.Zones()[0]);
 
         c.LayoutId = "columns-2";   // picking a preset (even the same one) evens it out
         Assert.Null(c.CustomZones);
-        Assert.Equal(new PixelRect(0, 0, 500, 500), c.Zones(spacing: 0)[0]);
+        Assert.Equal(new PixelRect(0, 0, 500, 500), c.Zones()[0]);
     }
 
     [Fact]
@@ -201,7 +195,7 @@ public class ZoneContainerTests
         {
             CustomZones = [new ZoneFraction(0, 0, 0.7, 1), new ZoneFraction(0.7, 0, 0.3, 1)],
         };
-        Assert.Equal(3, c.Zones(spacing: 0).Count);
+        Assert.Equal(3, c.Zones().Count);
     }
 
     [Fact]

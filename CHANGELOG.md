@@ -9,6 +9,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.1.1] - 2026-10-21
+
+### Added
+
+- Start Flamingle when you sign in (Settings → Behaviour)
+- One-line PowerShell install that checks the checksums first
+
+### Changed
+
+- Zones sit flush; gaps are gone (they were rarely wanted)
+- Dropped the new-flock and minimise / restore shortcuts (Alt+Shift+E does the job)
+
+### Fixed
+
+- Picking a layout no longer scrolls Settings → Zones to the top
+- Picking a layout takes one click (it took two, for no good reason)
+
+---
+
 ## [v0.1.0] - 2026-10-19
 
 First release. Windows that belong together, now kept together.

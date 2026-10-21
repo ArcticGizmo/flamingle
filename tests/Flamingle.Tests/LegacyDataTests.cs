@@ -18,7 +18,7 @@ public sealed class LegacyDataTests : IDisposable
         var legacy = Directory.CreateDirectory(Path.Combine(_root, "Gaggle")).FullName;
         File.WriteAllText(Path.Combine(legacy, "gaggles.json"), """{ "Groups": [] }""");
         File.WriteAllText(Path.Combine(legacy, "settings.json"),
-            """{ "NewGaggleHotkey": "Ctrl+Alt+N", "zonesFormGaggle": false, "ToggleHotkey": "Ctrl+Alt+M" }""");
+            """{ "zonesFormGaggle": false, "LayoutMenuHotkey": "Ctrl+Alt+E" }""");
 
         Assert.True(LegacyData.Migrate(_root, dev: false));
 
@@ -28,9 +28,8 @@ public sealed class LegacyDataTests : IDisposable
         Assert.False(File.Exists(Path.Combine(current, "gaggles.json")));
 
         var settings = new JsonFile<AppSettings>(Path.Combine(current, "settings.json")).Load(AppSettings.Default);
-        Assert.Equal("Ctrl+Alt+N", settings.NewFlockHotkey);
         Assert.False(settings.ZonesFormFlock);
-        Assert.Equal("Ctrl+Alt+M", settings.ToggleHotkey);
+        Assert.Equal("Ctrl+Alt+E", settings.LayoutMenuHotkey);
     }
 
     [Fact]

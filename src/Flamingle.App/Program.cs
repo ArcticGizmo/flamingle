@@ -14,8 +14,10 @@ internal static class Program
     public static int Main(string[] args)
     {
         // Velopack's install / update / uninstall hooks run (and exit) here when the installer launches us; a
-        // normal launch passes straight through. Must come first.
-        VelopackApp.Build().Run();
+        // normal launch passes straight through. Must come first. Uninstalling takes the sign-in entry with it.
+        VelopackApp.Build()
+            .OnBeforeUninstallFastCallback(_ => StartWithWindows.Set(false))
+            .Run();
 
         // Headless diagnostic for tuning the snap-group heuristic: list the candidate windows and every
         // group the detector finds. Pipe it somewhere to see it (a WinExe has no console of its own):

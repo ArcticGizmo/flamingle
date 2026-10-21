@@ -8,12 +8,6 @@ namespace Flamingle.Core.Settings;
 /// </summary>
 public sealed record AppSettings
 {
-    /// <summary>Opens the picker, pre-checking the windows snapped with the focused one.</summary>
-    public string NewFlockHotkey { get; init; } = "Alt+Shift+G";
-
-    /// <summary>Minimise / restore the flock holding the focused window (else the last-used flock).</summary>
-    public string ToggleHotkey { get; init; } = "Alt+Shift+M";
-
     /// <summary>Puts the layout on the monitor under the cursor into edit mode (its panel, split strips, and drag
     /// anywhere to move it) — or takes it out again.</summary>
     public string LayoutMenuHotkey { get; init; } = "Alt+Shift+E";
@@ -47,17 +41,6 @@ public sealed record AppSettings
     /// under the cursor (like FancyZones) — much cheaper on USB (DisplayLink) monitors, which redraw the whole screen
     /// in software whenever a full-screen overlay appears.</summary>
     public bool ZonesOnEveryMonitor { get; init; }
-
-    /// <summary>Gap between zones (and around the edge of the work area), in physical pixels.</summary>
-    public int ZoneSpacing { get; init; } = 8;
-
-    /// <summary>Gaps on/off (quick toggle in the layout tab). Off lays zones flush, keeping
-    /// <see cref="ZoneSpacing"/> for when they're switched back on.</summary>
-    public bool ZoneGaps { get; init; } = true;
-
-    /// <summary>The spacing actually used: <see cref="ZoneSpacing"/>, or 0 with gaps off.</summary>
-    [JsonIgnore]
-    public int EffectiveZoneSpacing => ZoneGaps ? Math.Max(0, ZoneSpacing) : 0;
 
     /// <summary>Layout id per monitor key (<see cref="Geometry.MonitorInfo.DeviceName"/> → <c>columns-3</c>). Monitors
     /// not listed use <see cref="Zones.ZoneLayout.DefaultId"/>.</summary>

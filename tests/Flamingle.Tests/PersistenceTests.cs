@@ -34,12 +34,12 @@ public sealed class PersistenceTests : IDisposable
     public void Settings_round_trip()
     {
         var file = new JsonFile<AppSettings>(Path.Combine(_dir, "settings.json"));
-        var custom = (AppSettings.Default with { ToggleHotkey = "Ctrl+Alt+F9", LinkedMinimise = false })
+        var custom = (AppSettings.Default with { LayoutMenuHotkey = "Ctrl+Alt+F9", LinkedMinimise = false })
             .WithLayout(@"\\.\DISPLAY2", "grid-2x2");
 
         Assert.True(file.Save(custom));
         var loaded = file.Load(AppSettings.Default);
-        Assert.Equal("Ctrl+Alt+F9", loaded.ToggleHotkey);
+        Assert.Equal("Ctrl+Alt+F9", loaded.LayoutMenuHotkey);
         Assert.False(loaded.LinkedMinimise);
         Assert.Equal("grid-2x2", loaded.LayoutIdFor(@"\\.\DISPLAY2"));
         Assert.Equal("columns-2", loaded.LayoutIdFor(@"\\.\DISPLAY1"));

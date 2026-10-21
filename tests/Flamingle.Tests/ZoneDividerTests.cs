@@ -115,16 +115,13 @@ public class ZoneDividerTests
     }
 
     [Fact]
-    public void Handle_rect_covers_the_gap_and_is_thickened_when_there_is_none()
+    public void Handle_rect_is_thickened_over_flush_zones()
     {
         var zones = Zones("columns-2");
         var d = Assert.Single(ZoneDividers.Find(zones));
         var work = new PixelRect(0, 0, 1000, 500);
 
-        var spaced = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), work, spacing: 10);
-        Assert.Equal(PixelRect.FromEdges(495, 10, 505, 490), ZoneDividers.HandleRect(d, spaced, minThickness: 8));
-
-        var flush = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), work, spacing: 0);
+        var flush = ZoneMath.Resolve(ZoneLayout.ById("columns-2"), work);
         Assert.Equal(PixelRect.FromEdges(496, 0, 504, 500), ZoneDividers.HandleRect(d, flush, minThickness: 8));
     }
 }

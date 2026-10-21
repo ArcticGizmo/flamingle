@@ -75,15 +75,6 @@ internal sealed class FlockController
 
     // ---- Commands ----
 
-    /// <summary>Toggle the flock holding the focused window, else the most recently used one.</summary>
-    public void ToggleFocused()
-    {
-        Prune();
-        var group = _registry.FindByWindow(LastFocus) ?? _registry.MostRecentlyUsed;
-        if (group is null) Notice?.Invoke("No flocks yet — press the new-flock hotkey to make one.");
-        else Toggle(group);
-    }
-
     public void ToggleSlot(int slot)
     {
         Prune();

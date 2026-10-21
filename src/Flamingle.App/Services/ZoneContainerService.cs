@@ -54,7 +54,7 @@ internal sealed class ZoneContainerService : IDisposable
     private const int MinZoneWidth = 240;
     private const int MinZoneHeight = 160;
 
-    // Divider strips are at least this thick (DIP), even when the zones have no spacing between them.
+    // Divider strips are this thick (DIP), centred on the line between the zones.
     private const double MinDividerThickness = 8;
 
     // The panel sits this far (DIP) below the top of the layout it edits.
@@ -162,14 +162,6 @@ internal sealed class ZoneContainerService : IDisposable
         if (PanelFlocksFor is { } flocks) panel.SetFlocks(flocks(c.DeviceName));
     }
 
-    /// <summary>Re-fit every layout's windows — after a setting that changes the zones (e.g. gaps).</summary>
-    public void ReflowAll()
-    {
-        Prune();
-        foreach (var c in _containers) Reflow(c);
-        SyncHandles();
-    }
-
     public void Start()
     {
         var monitors = Monitors.All();
@@ -244,11 +236,8 @@ internal sealed class ZoneContainerService : IDisposable
     /// <summary>The zones for a monitor: its container's (in the container's frame) or the default layout
     /// filling the work area.</summary>
     public IReadOnlyList<PixelRect> ZonesFor(MonitorInfo monitor)
-    {
-        var spacing = _settings().EffectiveZoneSpacing;
-        return ContainerOn(monitor.DeviceName)?.Zones(spacing)
-            ?? ZoneMath.Resolve(ZoneLayout.ById(LayoutIdFor(monitor)), monitor.WorkArea, spacing);
-    }
+        => ContainerOn(monitor.DeviceName)?.Zones()
+           ?? ZoneMath.Resolve(ZoneLayout.ById(LayoutIdFor(monitor)), monitor.WorkArea);
 
     /// <summary>The zones <paramref name="layoutId"/> would have on a monitor — in its layout's frame if it has one
     /// (with its custom splits, if that's the current layout), else filling the work area. For the snap strip.</summary>
@@ -256,7 +245,7 @@ internal sealed class ZoneContainerService : IDisposable
     {
         if (layoutId == LayoutIdFor(monitor)) return ZonesFor(monitor);
         var frame = ContainerOn(monitor.DeviceName)?.Frame ?? monitor.WorkArea;
-        return ZoneMath.Resolve(ZoneLayout.ById(layoutId), frame, _settings().EffectiveZoneSpacing);
+        return ZoneMath.Resolve(ZoneLayout.ById(layoutId), frame);
     }
 
     /// <summary>Switch a monitor's layout the way a layout tab does (the app saves the choice and re-flows) — for a
@@ -345,7 +334,7 @@ internal sealed class ZoneContainerService : IDisposable
     {
         var c = GetOrCreate(monitor);
         Prune();
-        var zones = c.Zones(_settings().EffectiveZoneSpacing);
+        var zones = c.Zones();
 
         var taken = c.Slots.Values.SelectMany(s => s.Zones).ToHashSet();
         var free = Enumerable.Range(0, zones.Count).Where(i => !taken.Contains(i)).ToList();
@@ -751,13 +740,13 @@ internal sealed class ZoneContainerService : IDisposable
         if (_editing == c && _editFrame is not null)
         {
             _editFrame.Place(f, scale);
-            _editFrame.SetZones(c.Zones(_settings().EffectiveZoneSpacing), f);
+            _editFrame.SetZones(c.Zones(), f);
         }
 
         // Each divider strip covers the gap between its zones.
         var dividers = c.Dividers();
         if (dividers.Count != h.Dividers.Count) return;
-        var zones = c.Zones(_settings().EffectiveZoneSpacing);
+        var zones = c.Zones();
         var thickness = (int)Math.Ceiling(MinDividerThickness * scale);
         for (var i = 0; i < dividers.Count; i++)
             h.Dividers[i].Place(ZoneDividers.HandleRect(dividers[i], zones, thickness), scale);
@@ -863,8 +852,7 @@ internal sealed class ZoneContainerService : IDisposable
 
         var c = r.Container;
         var f = c.Frame;
-        var spacing = _settings().EffectiveZoneSpacing;
-        var target = ZoneContainer.TargetFor(r.Slot, ZoneMath.Resolve(new ZoneLayout("", "", r.StartZones), f, spacing));
+        var target = ZoneContainer.TargetFor(r.Slot, ZoneMath.Resolve(new ZoneLayout("", "", r.StartZones), f));
         var visible = WindowQuery.Snapshot(hwnd).Bounds;
 
         var zones = r.StartZones;
@@ -873,10 +861,8 @@ internal sealed class ZoneContainerService : IDisposable
             if (Math.Abs(now - was) <= 2) return;
             if (ZoneDividers.ForEdge(r.StartZones, r.Slot.Zones, edge) is not { } d) return;
 
-            // The divider sits half a gap beyond the window's visible edge.
-            var trailing = edge is ZoneDividers.Edge.Right or ZoneDividers.Edge.Bottom;
-            var line = trailing ? now + spacing / 2.0 : now - spacing / 2.0;
-            var position = d.Vertical ? (line - f.X) / f.Width : (line - f.Y) / f.Height;
+            // The divider sits on the window's visible edge.
+            var position = d.Vertical ? (now - f.X) / (double)f.Width : (now - f.Y) / (double)f.Height;
             var min = d.Vertical ? MinZoneWidth / (double)f.Width : MinZoneHeight / (double)f.Height;
             zones = ZoneDividers.Move(zones, d, position, min);
         }
@@ -887,7 +873,7 @@ internal sealed class ZoneContainerService : IDisposable
         Follow(ZoneDividers.Edge.Bottom, visible.Bottom, target.Bottom);
 
         c.CustomZones = zones;
-        var resolved = c.Zones(spacing);
+        var resolved = c.Zones();
         var moves = c.Slots.Values
             .Where(s => s.Handle != (long)hwnd)
             .Select(s => ((IntPtr)s.Handle, r.Margins.GetValueOrDefault(s.Handle).Grow(ZoneContainer.TargetFor(s, resolved))))
@@ -983,7 +969,7 @@ internal sealed class ZoneContainerService : IDisposable
         if (_drag is not { Pending: true } d) return;
         d.Pending = false;
 
-        var zones = d.Container.Zones(_settings().EffectiveZoneSpacing);
+        var zones = d.Container.Zones();
         var moves = d.Container.Slots.Values
             .Select(s => ((IntPtr)s.Handle,
                 d.Margins.GetValueOrDefault(s.Handle).Grow(ZoneContainer.TargetFor(s, zones))))
@@ -1068,7 +1054,7 @@ internal sealed class ZoneContainerService : IDisposable
     /// <summary>Put every slotted window back into its zones (fresh margins).</summary>
     private void Reflow(ZoneContainer c)
     {
-        var zones = c.Zones(_settings().EffectiveZoneSpacing);
+        var zones = c.Zones();
         foreach (var s in c.Slots.Values)
             WindowPlacer.Fit((IntPtr)s.Handle, ZoneContainer.TargetFor(s, zones));
         if (_handles.TryGetValue(c, out var h))

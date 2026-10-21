@@ -5,14 +5,11 @@ using Flamingle.Core.Settings;
 namespace Flamingle.App.Services;
 
 /// <summary>
-/// Registers Flamingle's global hotkeys from settings: "new flock", "toggle", "layout menu" and the nine slot
-/// toggles.
+/// Registers Flamingle's global hotkeys from settings: "edit layout" and the nine slot toggles.
 /// Construct and drive on the UI thread (see <see cref="MessageWindow"/>).
 /// </summary>
 internal sealed class HotkeyService : IDisposable
 {
-    private const int NewFlockId = 1;
-    private const int ToggleId = 2;
     private const int LayoutMenuId = 3;
     private const int FirstSlotId = 10;   // slot n → FirstSlotId + n
 
@@ -25,8 +22,6 @@ internal sealed class HotkeyService : IDisposable
         _window.HotkeyPressed += OnHotkeyPressed;
     }
 
-    public event Action? NewFlockRequested;
-    public event Action? ToggleRequested;
     public event Action? LayoutMenuRequested;
     public event Action<int>? SlotRequested;
 
@@ -44,8 +39,6 @@ internal sealed class HotkeyService : IDisposable
         Suspend();
 
         var failed = new List<string>();
-        Register(NewFlockId, settings.NewFlockHotkey, failed);
-        Register(ToggleId, settings.ToggleHotkey, failed);
         Register(LayoutMenuId, settings.LayoutMenuHotkey, failed);
 
         if (!string.IsNullOrWhiteSpace(settings.SlotHotkeyModifiers))
@@ -73,8 +66,6 @@ internal sealed class HotkeyService : IDisposable
     {
         switch (id)
         {
-            case NewFlockId: NewFlockRequested?.Invoke(); break;
-            case ToggleId: ToggleRequested?.Invoke(); break;
             case LayoutMenuId: LayoutMenuRequested?.Invoke(); break;
             case > FirstSlotId and <= FirstSlotId + 9: SlotRequested?.Invoke(id - FirstSlotId); break;
         }

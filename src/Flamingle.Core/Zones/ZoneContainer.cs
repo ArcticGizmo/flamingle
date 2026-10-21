@@ -88,7 +88,7 @@ public sealed class ZoneContainer
         }
     }
 
-    public IReadOnlyList<PixelRect> Zones(int spacing) => ZoneMath.Resolve(Layout, Frame, spacing);
+    public IReadOnlyList<PixelRect> Zones() => ZoneMath.Resolve(Layout, Frame);
 
     public IReadOnlyList<ZoneDivider> Dividers() => ZoneDividers.Find(Layout.Zones);
 

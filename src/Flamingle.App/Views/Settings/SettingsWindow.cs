@@ -40,7 +40,6 @@ internal sealed class SettingsHost
     public required Action<MonitorInfo, string> ApplyLayout { get; init; }
     public required Action<MonitorInfo> ShowZones { get; init; }
     public required Action<MonitorInfo> FillZones { get; init; }
-    public required Action<bool> SetGaps { get; init; }
     public required Action<bool> SuspendHotkeys { get; init; }
     public required Action OpenDataFolder { get; init; }
     public required string Version { get; init; }
@@ -214,7 +213,14 @@ internal sealed class SettingsWindow : Window
         var (page, build) = _pages[key];
         var body = new StackPanel { Margin = PageMargin, MaxWidth = PageMaxWidth, HorizontalAlignment = HorizontalAlignment.Stretch };
         build(body);
+
+        // New content scrolls the page back to the top (e.g. picking a layout on the Zones page): lay the new page
+        // out straight away and put the scroll position back, so nothing jumps.
+        var offset = page.Offset;
         page.Content = body;
+        if (offset == default) return;
+        page.UpdateLayout();
+        page.Offset = offset;
     }
 
     // ---- Flocks ----
@@ -242,7 +248,7 @@ internal sealed class SettingsWindow : Window
         var groups = _host.Registry.Groups;
         page.Children.Add(ListTitle("Open now", groups.Count));
         page.Children.Add(groups.Count == 0
-            ? BodyText($"None open. Press {Hotkey(S.NewFlockHotkey)} in any window to start one, or drop windows into zones.")
+            ? BodyText("None open. Drop windows into zones, or pick some with \"New flock…\".")
             : List(groups.Select(FlockRow)));
 
         var saved = _host.SavedFlocks();
@@ -429,8 +435,6 @@ internal sealed class SettingsWindow : Window
 
     private string? SlotHotkey(int slot) => Services.HotkeyService.SlotHotkeyText(S, slot);
 
-    private static string Hotkey(string text) => Core.Hotkeys.Hotkey.TryParse(text)?.ToString() ?? "the new-flock shortcut";
-
     // ---- Zones ----
 
     private void BuildZones(StackPanel page)
@@ -474,19 +478,6 @@ internal sealed class SettingsWindow : Window
                 "Both will drop down. Turn Windows' off on the Windows snapping page (then restart Explorer).",
                 FlatButton("Windows snapping…", () => Select("snapping"))));
         }
-
-        page.Children.Add(Row("Gaps between windows", "Leave space between zones and around the screen edge.",
-            Toggle(s.ZoneGaps, _host.SetGaps)));
-
-        var spacing = new NumericUpDown
-        {
-            Minimum = 0, Maximum = 64, Increment = 2, Value = s.ZoneSpacing, Width = 130, FormatString = "0",
-        };
-        spacing.ValueChanged += (_, e) =>
-        {
-            if (e.NewValue is { } v && (int)v != S.ZoneSpacing) Update(x => x with { ZoneSpacing = (int)v });
-        };
-        page.Children.Add(Row("Gap size", "In pixels.", spacing, s.ZoneGaps));
 
         page.Children.Add(SectionTitle("Layouts"));
         foreach (var monitor in Monitors.All())
@@ -624,7 +615,13 @@ internal sealed class SettingsWindow : Window
     {
         var s = S;
         page.Children.Add(PageTitle("Behaviour"));
-        page.Children.Add(BodyText("All of these are experiments — switch them off to compare."));
+
+        page.Children.Add(Row("Start Flamingle when you sign in to Windows",
+            "Starts in the tray, ready to put your layouts back.",
+            Toggle(StartWithWindows.IsOn(), StartWithWindows.Set)));
+
+        page.Children.Add(SectionTitle("Experiments"));
+        page.Children.Add(BodyText("Switch these off to compare."));
 
         page.Children.Add(Row("Linked minimise",
             "Minimising or restoring any one window in a flock (its own title bar, the taskbar) takes the rest with it.",
@@ -656,10 +653,6 @@ internal sealed class SettingsWindow : Window
         page.Children.Add(PageTitle("Shortcuts"));
         page.Children.Add(BodyText("Global shortcuts. Click one, then press the new combination (Esc cancels)."));
 
-        page.Children.Add(Row("New flock", "Opens the picker, with the windows snapped next to the focused one ticked.",
-            ShortcutEditor(s.NewFlockHotkey, v => Update(x => x with { NewFlockHotkey = v }))));
-        page.Children.Add(Row("Minimise / restore", "The flock holding the focused window, else the last one used.",
-            ShortcutEditor(s.ToggleHotkey, v => Update(x => x with { ToggleHotkey = v }))));
         page.Children.Add(Row("Edit layout",
             "Puts the layout on the monitor under the cursor into edit mode — even with no windows in it yet: drag " +
             "anywhere to move it, adjust its splits, pick a layout. Ctrl+Z / Ctrl+Y undo and redo layout changes. " +

@@ -70,6 +70,7 @@ public partial class App : Application
             _settings = _settings with { LastSeenVersion = Version };
             // Write the settings back so the file always shows every option (including newly added ones).
             _settingsFile.Save(_settings);
+            StartWithWindows.Refresh();
 
             // Re-attach to flocks from the last run whose windows are still open.
             _flocksFile = new JsonFile<FlockSnapshot>(Path.Combine(dataDir, "flocks.json"));
@@ -143,8 +144,6 @@ public partial class App : Application
             _hooks.Start();
 
             _hotkeys = new HotkeyService();
-            _hotkeys.NewFlockRequested += ShowPicker;
-            _hotkeys.ToggleRequested += () => _controller.ToggleFocused();
             _hotkeys.LayoutMenuRequested += () =>
             {
                 if (_design?.IsOpen != true) _containers.ToggleEditAtCursor();
@@ -255,7 +254,6 @@ public partial class App : Application
             ApplyLayout = ApplyLayout,
             ShowZones = monitor => _zones?.Preview(monitor),
             FillZones = monitor => _containers?.FillWithOpenWindows(monitor),
-            SetGaps = SetGaps,
             SuspendHotkeys = suspend =>
             {
                 if (suspend) _hotkeys?.Suspend();
@@ -330,20 +328,13 @@ public partial class App : Application
         _registry.Create(saved.Name, handles.Select(h => WindowQuery.ToMember(WindowQuery.Snapshot((IntPtr)h))));
     }
 
-    /// <summary>Gaps on/off (from settings): every layout re-flows straight away.</summary>
-    private void SetGaps(bool on)
-    {
-        if (_settings.ZoneGaps == on) return;
-        UpdateSettings(_settings with { ZoneGaps = on });
-        _containers?.ReflowAll();
-    }
-
     /// <summary>Pick a monitor's layout (from settings or a layout chip): remember it, and re-flow the windows
     /// already in its zones.</summary>
     private void ApplyLayout(MonitorInfo monitor, string layoutId)
     {
-        UpdateSettings(_settings.WithLayout(monitor.DeviceName, layoutId));
+        // Switch the live layout first: saving the settings redraws the settings window, which shows the live one.
         _containers?.SetLayout(monitor, layoutId);
+        UpdateSettings(_settings.WithLayout(monitor.DeviceName, layoutId));
     }
 
     /// <summary>Per-monitor state used to be keyed by the monitor's GDI name (<c>\\.\DISPLAY3</c>), which it loses
@@ -368,7 +359,7 @@ public partial class App : Application
             return;
         }
 
-        // Seed the snap-group guess from the window the user was in before they hit the hotkey (or opened settings).
+        // Seed the snap-group guess from the window the user was in before they opened settings.
         var seed = _controller.LastFocus;
         var windows = WindowQuery.Candidates();
         var guess = seed != 0 ? SnapGroupDetector.Detect(seed, windows) : [];
@@ -390,10 +381,8 @@ public partial class App : Application
         _settings = settings;
         _settingsFile?.Save(settings);
 
-        if (old.NewFlockHotkey != settings.NewFlockHotkey || old.ToggleHotkey != settings.ToggleHotkey
-            || old.LayoutMenuHotkey != settings.LayoutMenuHotkey || old.SlotHotkeyModifiers != settings.SlotHotkeyModifiers)
+        if (old.LayoutMenuHotkey != settings.LayoutMenuHotkey || old.SlotHotkeyModifiers != settings.SlotHotkeyModifiers)
             ApplyHotkeys();
-        if (old.ZoneSpacing != settings.ZoneSpacing) _containers?.ReflowAll();
         _taskbar?.Sync();
         _settingsWindow?.Refresh();
     }
