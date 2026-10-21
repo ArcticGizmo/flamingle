@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.1.2] - 2026-10-21
+
+### Added
+
+- Check for updates from the tray menu or Settings → About (previously: reinstall and hope)
+
+---
+
 ## [v0.1.1] - 2026-10-21
 
 ### Added

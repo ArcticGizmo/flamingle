@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Flamingle.App.Native;
+using Flamingle.App.Services;
 using Flamingle.Core;
 using Flamingle.Core.Geometry;
 using Flamingle.Core.Grouping;
@@ -43,6 +44,9 @@ internal sealed class SettingsHost
     public required Action<bool> SuspendHotkeys { get; init; }
     public required Action OpenDataFolder { get; init; }
     public required string Version { get; init; }
+    public required Func<UpdateStatus> UpdateStatus { get; init; }
+    public required Action CheckForUpdates { get; init; }
+    public required Action RestartToUpdate { get; init; }
 
     /// <summary>Pop the "what's new" window for an update from one version to another (the dev-build preview).</summary>
     public required Action<string, string> PreviewChangelog { get; init; }
@@ -121,6 +125,9 @@ internal sealed class SettingsWindow : Window
 
     /// <summary>Flocks were created, changed or dissolved.</summary>
     public void RefreshFlocks() => Rebuild("flocks");
+
+    /// <summary>An update check moved on.</summary>
+    public void RefreshUpdates() => Rebuild("about");
 
     public void Select(string key)
     {
@@ -720,6 +727,15 @@ internal sealed class SettingsWindow : Window
         page.Children.Add(PageTitle($"Flamingle{AppProfile.DisplaySuffix}"));
         page.Children.Add(BodyText($"Version {_host.Version}"));
         page.Children.Add(BodyText("Group windows so they minimise, restore, move and relaunch together."));
+
+        var status = _host.UpdateStatus();
+        page.Children.Add(Row(
+            status.ReadyVersion is { } ready ? $"{ready} downloaded" : "Check for updates",
+            string.IsNullOrEmpty(status.Text) ? "Look for a newer release on GitHub and download it." : status.Text,
+            status.ReadyVersion is not null
+                ? FlatButton("Restart to update", _host.RestartToUpdate)
+                : FlatButton(status.Busy ? "Checking…" : "Check now", _host.CheckForUpdates),
+            enabled: !status.Busy));
 
         page.Children.Add(SectionTitle("Data"));
         page.Children.Add(BodyText(

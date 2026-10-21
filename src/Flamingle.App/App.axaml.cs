@@ -34,7 +34,9 @@ public partial class App : Application
     private FlockDesignService? _design;
     private TaskbarService? _taskbar;
     private HotkeyService? _hotkeys;
+    private readonly UpdateService _updates = new();
     private TrayIcon? _tray;
+    private NativeMenuItem? _updateItem;
     private PickerWindow? _picker;
     private SettingsWindow? _settingsWindow;
     private ChangelogWindow? _changelogWindow;
@@ -153,6 +155,14 @@ public partial class App : Application
 
             SetupTray(desktop);
 
+            _updates.Notice += ToastWindow.Show;
+            _updates.Changed += () =>
+            {
+                UpdateTrayUpdateItem();
+                _settingsWindow?.RefreshUpdates();
+            };
+            _updates.ExitRequested += () => desktop.Shutdown();
+
             if (whatsNew is { Count: > 0 })
                 Dispatcher.UIThread.Post(() => ShowChangelog(UpdatedSubhead(whatsNew), whatsNew), DispatcherPriority.Background);
 
@@ -195,6 +205,13 @@ public partial class App : Application
 
         menu.Add(new NativeMenuItemSeparator());
 
+        _updateItem = new NativeMenuItem();
+        _updateItem.Click += (_, _) => CheckOrRestartToUpdate();
+        menu.Add(_updateItem);
+        UpdateTrayUpdateItem();
+
+        menu.Add(new NativeMenuItemSeparator());
+
         var quit = new NativeMenuItem("Quit Flamingle");
         quit.Click += (_, _) => desktop.Shutdown();
         menu.Add(quit);
@@ -219,6 +236,23 @@ public partial class App : Application
             1 => $"Flamingle{AppProfile.DisplaySuffix} — 1 flock",
             var n => $"Flamingle{AppProfile.DisplaySuffix} — {n} flocks",
         };
+    }
+
+    /// <summary>One tray item for updates: check (and download), then — once one's downloaded — restart to install it.</summary>
+    private void UpdateTrayUpdateItem()
+    {
+        if (_updateItem is null) return;
+        var status = _updates.Status;
+        _updateItem.Header = status.ReadyVersion is { } ready ? $"Restart to update to {ready}"
+            : status.Busy ? status.Text
+            : "Check for updates";
+        _updateItem.IsEnabled = !status.Busy;
+    }
+
+    private void CheckOrRestartToUpdate()
+    {
+        if (_updates.Status.ReadyVersion is not null) _updates.RestartToUpdate();
+        else _updates.Check();
     }
 
     private void ShowSettings() => ShowSettings(null);
@@ -261,6 +295,9 @@ public partial class App : Application
             },
             OpenDataFolder = OpenDataFolder,
             Version = Version,
+            UpdateStatus = () => _updates.Status,
+            CheckForUpdates = _updates.Check,
+            RestartToUpdate = _updates.RestartToUpdate,
             PreviewChangelog = PreviewChangelog,
         }, page ?? "flocks");
         window.Closed += (_, _) => { if (ReferenceEquals(_settingsWindow, window)) _settingsWindow = null; };
