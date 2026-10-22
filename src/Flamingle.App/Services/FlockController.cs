@@ -167,10 +167,11 @@ internal sealed class FlockController
 
     public Flock Create(string name, IEnumerable<FlockMember> members)
     {
-        var group = _registry.Create(name, members);
-        Notice?.Invoke($"Created \"{group.Name}\" ({group.Members.Count} windows) — slot {_registry.SlotOf(group)}.");
-        return group;
+        return _registry.Create(name, members);
     }
+
+    /// <summary>The flock a window is in, if any.</summary>
+    public Flock? FlockOf(long handle) => _registry.FindByWindow(handle);
 
     // ---- Zone flocks ----
 
@@ -202,12 +203,8 @@ internal sealed class FlockController
         }
         else
         {
-            group = _registry.Create(ZoneFlockName(deviceName, desktop), [member], deviceName, desktop);
-            var where = desktop is { } d && VirtualDesktops.Label(d) is { } label
-                ? $"{ShortName(deviceName)} on {label}"
-                : ShortName(deviceName);
-            Notice?.Invoke($"Started a zone flock on {where} (slot {_registry.SlotOf(group)}). " +
-                           "Windows you drop into zones there will minimise and restore together.");
+            // No toast: this happens mid-drag, and the flock's taskbar button says it well enough.
+            _registry.Create(ZoneFlockName(deviceName, desktop), [member], deviceName, desktop);
         }
     }
 
@@ -320,7 +317,7 @@ internal sealed class FlockController
                 | Win32.SWP_ASYNCWINDOWPOS);
         }
 
-        var stuck = live.Where(h => Win32.IsIconic((IntPtr)h)).ToList();
+        var stuck = live.Where(h => Win32.IsIconic((IntPtr)h)).Where(_warnedStuck.Add).ToList();
         if (stuck.Count > 0)
             Notice?.Invoke($"Couldn't restore {Describe(group, stuck)}.{ElevationHint}");
     }
@@ -330,10 +327,14 @@ internal sealed class FlockController
         if (CurrentGeneration(group) != gen) return;
         var stuck = group.Members.Select(m => m.Handle)
             .Where(h => Win32.IsWindow((IntPtr)h) && !Win32.IsIconic((IntPtr)h))
+            .Where(_warnedStuck.Add)
             .ToList();
         if (stuck.Count > 0)
             Notice?.Invoke($"Couldn't minimise {Describe(group, stuck)}.{ElevationHint}");
     }
+
+    // Windows already warned about this session: one running as administrator would otherwise nag on every toggle.
+    private readonly HashSet<long> _warnedStuck = [];
 
     private const string ElevationHint =
         " If it's running as administrator, Flamingle has to be too.";

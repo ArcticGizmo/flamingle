@@ -358,13 +358,11 @@ internal sealed class ZoneContainerService : IDisposable
         Save();
         SyncHandles();
 
-        Notice?.Invoke(placed switch
-        {
-            0 when free.Count == 0 => "Every zone is already taken.",
-            0 => $"No other open windows on {monitor.ShortName} to fill the zones with.",
-            1 => "Put 1 window into the layout.",
-            _ => $"Put {placed} windows into the layout.",
-        });
+        // Windows moving into the zones say it worked; only an empty-handed fill needs explaining.
+        if (placed == 0)
+            Notice?.Invoke(free.Count == 0
+                ? "Every zone is already taken."
+                : $"No other open windows on {monitor.ShortName} to fill the zones with.");
     }
 
     // ---- Handles ----
@@ -487,6 +485,7 @@ internal sealed class ZoneContainerService : IDisposable
             : $"{c.Layout.Name} · {c.Slots.Count} window{(c.Slots.Count == 1 ? "" : "s")}");
         h.Panel.SetCurrentLayout(c.LayoutId);
         h.Panel.SetAdjusting(_adjusting.Contains(c));
+        h.Panel.SetCanAdjust(c.Dividers().Count > 0);
         h.Panel.SetHistory(_history.CanUndo, _history.CanRedo);
         SetPanelFlocks(c, h.Panel);
         SyncDividers(c, h);
@@ -565,13 +564,11 @@ internal sealed class ZoneContainerService : IDisposable
     }
 
     /// <summary>Show / hide a layout's divider strips (the panel's "Adjust splits").</summary>
-    private void SetAdjusting(ZoneContainer c, bool on, bool quiet = false)
+    private void SetAdjusting(ZoneContainer c, bool on)
     {
         if (on ? !_adjusting.Add(c) : !_adjusting.Remove(c)) return;
         if (_handles.TryGetValue(c, out var h)) h.Panel.SetAdjusting(on);
         SyncHandles();
-        if (on && !quiet && c.Dividers().Count == 0)
-            Notice?.Invoke($"{c.Layout.Name} has only one zone — nothing to split.");
     }
 
     // ---- Edit mode ----
@@ -678,21 +675,18 @@ internal sealed class ZoneContainerService : IDisposable
         _history.Record(_changeLabel, before, Geometry());
     }
 
-    public void Undo() => ApplyHistoryStep(_history.Undo(CurrentGeometry), "Undid", "Nothing to undo.");
+    // Silent either way: the layout visibly changes, and the panel's buttons are disabled when there's nothing to do.
+    public void Undo() => ApplyHistoryStep(_history.Undo(CurrentGeometry));
 
-    public void Redo() => ApplyHistoryStep(_history.Redo(CurrentGeometry), "Redid", "Nothing to redo.");
+    public void Redo() => ApplyHistoryStep(_history.Redo(CurrentGeometry));
 
     private LayoutGeometry? CurrentGeometry(ZoneContainer c) => _containers.Contains(c) ? LayoutGeometry.Of(c) : null;
 
     /// <summary>Put the layouts in a history step back where it says, re-flowing their windows; zone flocks follow
     /// any layout that changes monitor (a swap undone swaps back).</summary>
-    private void ApplyHistoryStep(LayoutChange<ZoneContainer>? step, string verb, string nothing)
+    private void ApplyHistoryStep(LayoutChange<ZoneContainer>? step)
     {
-        if (step is null)
-        {
-            Notice?.Invoke(nothing);
-            return;
-        }
+        if (step is null) return;
 
         var monitors = Monitors.All();
         var moves = new List<(ZoneContainer C, string From)>();
@@ -725,7 +719,6 @@ internal sealed class ZoneContainerService : IDisposable
         }
         Save();
         SyncHandles();
-        Notice?.Invoke($"{verb}: {step.Label}.");
     }
 
     private void PositionHandles(ZoneContainer c, Handles h, MonitorInfo? monitor)
@@ -1031,7 +1024,6 @@ internal sealed class ZoneContainerService : IDisposable
             Reflow(other);
             BringToFront(other);
             Swapped?.Invoke(source, target);
-            Notice?.Invoke($"Swapped the layouts on {source.ShortName} and {target.ShortName}.");
         }
         else
         {

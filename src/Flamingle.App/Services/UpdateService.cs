@@ -46,8 +46,11 @@ internal sealed class UpdateService
     /// <summary>The status moved on. Raised on the UI thread.</summary>
     public event Action? Changed;
 
-    /// <summary>Something worth a toast (up to date, downloaded, failed).</summary>
+    /// <summary>Installing failed, straight after the user asked for it.</summary>
     public event Action<string>? Notice;
+
+    /// <summary>How a check went (up to date, downloaded, failed) — it finishes in the background.</summary>
+    public event Action<Notification>? Notified;
 
     /// <summary>Velopack is waiting for this process to exit so it can install and relaunch: shut down cleanly.</summary>
     public event Action? ExitRequested;
@@ -58,7 +61,7 @@ internal sealed class UpdateService
         if (Status.Busy) return;
         if (_manager is null)
         {
-            Notice?.Invoke("Updates work only in an installed Flamingle — this one isn't.");
+            Notified?.Invoke(new("Can't update this Flamingle", "Updates work only in an installed Flamingle — this one isn't."));
             return;
         }
 
@@ -69,7 +72,9 @@ internal sealed class UpdateService
             if (info is null)
             {
                 Set(_ready is { } pending ? Ready(pending) : new UpdateStatus($"Up to date (checked {DateTime.Now:t}).", false, null));
-                Notice?.Invoke(_ready is null ? "Flamingle is up to date." : Status.Text);
+                Notified?.Invoke(_ready is { } waiting
+                    ? ReadyNotification(waiting)
+                    : new("Flamingle is up to date", $"v{_manager.CurrentVersion} is the latest."));
                 return;
             }
 
@@ -90,13 +95,13 @@ internal sealed class UpdateService
 
             _ready = info.TargetFullRelease;
             Set(Ready(_ready));
-            Notice?.Invoke($"Flamingle {version} downloaded — choose \"Restart to update\" in the tray menu or Settings → About.");
+            Notified?.Invoke(ReadyNotification(_ready));
         }
         catch (Exception ex)
         {
             DebugLog.Write($"Update check failed: {ex}");
             Set(_ready is { } pending ? Ready(pending) : new UpdateStatus($"Couldn't check for updates: {ex.Message}", false, null));
-            Notice?.Invoke("Couldn't check for updates — see Settings → About.");
+            Notified?.Invoke(new("Couldn't check for updates", ex.Message, Warning: true));
         }
     }
 
@@ -118,6 +123,9 @@ internal sealed class UpdateService
 
     private static UpdateStatus Ready(VelopackAsset asset)
         => new($"v{asset.Version} is ready — restart Flamingle to install it.", false, "v" + asset.Version);
+
+    private static Notification ReadyNotification(VelopackAsset asset)
+        => new($"Flamingle v{asset.Version} is ready", "Choose \"Restart to update\" in the tray menu or Settings → About.");
 
     private void Set(UpdateStatus status)
     {

@@ -7,9 +7,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [v0.2.1] - 2026-10-22
+
 ### Added
 
 - Name and version at the top of the tray menu
+- Background news goes to Windows notifications (Settings → Experiments)
+
+### Changed
+
+- Far fewer toasts (things that worked no longer announce it)
+- Warns once about a window it can't minimise, not every toggle
+- Adjust splits greyed out on one-zone layouts (there was never anything to split)
+
+### Fixed
+
+- Loading a saved flock twice no longer steals the first one's windows
 
 ---
 

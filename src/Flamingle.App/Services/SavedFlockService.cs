@@ -20,6 +20,9 @@ internal sealed class SavedFlockService(string path, ZoneContainerService zones)
 
     public event Action<string>? Notice;
 
+    /// <summary>saved-flocks.json couldn't be written — the change is lost on restart.</summary>
+    public event Action<Notification>? Notified;
+
     public IReadOnlyList<SavedFlock> All => _saved.Flocks;
 
     public void Load() => _saved = _file.Load(SavedFlocks.Empty);
@@ -43,14 +46,16 @@ internal sealed class SavedFlockService(string path, ZoneContainerService zones)
         _saved = _saved.Save(new SavedFlock(Guid.NewGuid(), name, DateTimeOffset.Now, windows), out var replaced);
         if (!_file.Save(_saved))
         {
-            Notice?.Invoke($"Couldn't write {Path.GetFileName(_file.Path)}.");
+            NotWritten();
             return;
         }
         Changed?.Invoke();
 
+        // Success shows in the panel's list; only a capture that won't come back cleanly is worth interrupting for.
         var gaps = windows.Count(w => w.Elevated || (w.ExePath is null && !w.Packaged));
-        Notice?.Invoke($"{(replaced ? "Updated" : "Saved")} \"{name}\" ({windows.Count} window{(windows.Count == 1 ? "" : "s")})."
-                       + (gaps > 0 ? $" {gaps} may not relaunch cleanly — see Settings → Flocks." : ""));
+        if (gaps > 0)
+            Notice?.Invoke($"{(replaced ? "Updated" : "Saved")} \"{name}\", but {gaps} of its windows may not relaunch " +
+                           "cleanly — see Settings → Flocks.");
     }
 
     /// <summary>Capture one open window as a saved window (the designer's "Add a window").</summary>
@@ -66,12 +71,14 @@ internal sealed class SavedFlockService(string path, ZoneContainerService zones)
         _saved = _saved.Update(flock);
         if (!_file.Save(_saved))
         {
-            Notice?.Invoke($"Couldn't write {Path.GetFileName(_file.Path)}.");
+            NotWritten();
             return;
         }
         Changed?.Invoke();
-        Notice?.Invoke($"Saved your changes to \"{flock.Name}\".");
     }
+
+    private void NotWritten() => Notified?.Invoke(new("Couldn't save your flocks",
+        $"Flamingle couldn't write {Path.GetFileName(_file.Path)}, so the change is lost when it restarts.", Warning: true));
 
     public void Delete(Guid id)
     {

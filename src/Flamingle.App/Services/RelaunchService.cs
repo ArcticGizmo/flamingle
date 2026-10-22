@@ -1,12 +1,14 @@
 using Avalonia.Threading;
 using Flamingle.App.Native;
 using Flamingle.Core.Geometry;
+using Flamingle.Core.Grouping;
 using Flamingle.Core.Saved;
 
 namespace Flamingle.App.Services;
 
 /// <summary>
-/// Loads a saved flock: for each window, uses a matching window that's already open (as its recipe allows) or starts
+/// Loads a saved flock: for each window, uses a matching window that's already open and not another flock's (as its
+/// recipe allows) or starts
 /// its app and waits for the new window to settle; then puts every window back — into its zones, or its saved rect
 /// mapped onto today's monitors — maximised / minimised as saved, stacked in its saved order, on its virtual desktop;
 /// and makes them a live flock. One load at a time; polled on the UI thread, never blocking on an app.
@@ -36,7 +38,11 @@ internal sealed class RelaunchService : IDisposable
         _poll.Tick += (_, _) => Poll();
     }
 
+    /// <summary>A load that was refused straight away (one already running, or the flock has a problem).</summary>
     public event Action<string>? Notice;
+
+    /// <summary>How a load went, when something didn't — it finishes seconds later, maybe after the user moved on.</summary>
+    public event Action<Notification>? Notified;
 
     private enum State { Waiting, Found, Missed, Skipped }
 
@@ -52,10 +58,11 @@ internal sealed class RelaunchService : IDisposable
         public string App => Plan.Window.ProcessName;
     }
 
-    private sealed class Run(SavedFlock flock, string? onto, HashSet<long> before)
+    private sealed class Run(SavedFlock flock, string? onto, HashSet<long> before, IReadOnlyList<string> blank)
     {
         public SavedFlock Flock { get; } = flock;
         public string? Onto { get; } = onto;
+        public IReadOnlyList<string> Blank { get; } = blank;
         public HashSet<long> Before { get; } = before;
         public List<Slot> Slots { get; } = [];
         public HashSet<long> Claimed { get; } = [];
@@ -67,8 +74,10 @@ internal sealed class RelaunchService : IDisposable
     /// Load <paramref name="flock"/> with these input values. <paramref name="ontoDevice"/> (picked when loading from
     /// Settings, or a layout panel's monitor) moves a flock that was all on one monitor onto that one instead. Whatever
     /// is in the zones it fills is minimised first, and the loaded windows become a flock of their own.
+    /// <paramref name="blank"/> names inputs that had no value, so the result can say so.
     /// </summary>
-    public void Load(SavedFlock flock, IReadOnlyDictionary<string, string> values, string? ontoDevice = null)
+    public void Load(SavedFlock flock, IReadOnlyDictionary<string, string> values, string? ontoDevice = null,
+        IReadOnlyList<string>? blank = null)
     {
         if (_run is not null)
         {
@@ -83,8 +92,9 @@ internal sealed class RelaunchService : IDisposable
 
         var plan = LoadPlan.Build(flock, values);
         var open = WindowQuery.Candidates();
-        var run = new Run(flock, ontoDevice, open.Select(w => w.Handle).ToHashSet());
+        var run = new Run(flock, ontoDevice, open.Select(w => w.Handle).ToHashSet(), blank ?? []);
         var now = DateTimeOffset.UtcNow;
+        var inAnotherFlock = InAnotherFlock(run, plan.Windows.Select(p => p.Window));
 
         foreach (var p in plan.Windows)
         {
@@ -98,8 +108,13 @@ internal sealed class RelaunchService : IDisposable
 
             // "Ask" is treated as "use it" until there's a prompt to ask with.
             var reuse = p.Recipe.Kind == LaunchKind.AlreadyOpen || p.Recipe.IfOpen != IfAlreadyOpen.StartAnother;
-            var candidates = open.Where(w => !run.Claimed.Contains(w.Handle)).Select(w => Identity(run, w.Handle, w.Title));
-            if (reuse && WindowMatcher.Best(p, candidates) is { } existing)
+            var unclaimed = open.Where(w => !run.Claimed.Contains(w.Handle)).ToList();
+            var free = unclaimed.Where(w => !inAnotherFlock.Contains(w.Handle)).Select(w => Identity(run, w.Handle, w.Title));
+            // A window another flock has (say this one, loaded onto the other monitor) is left to it: start another
+            // instead. Only a window that's never started takes one from another flock, having no other way to load.
+            var existing = WindowMatcher.Best(p, free)
+                           ?? (p.Recipe.Launches ? null : WindowMatcher.Best(p, unclaimed.Select(w => Identity(run, w.Handle, w.Title))));
+            if (reuse && existing is not null)
             {
                 Claim(run, slot, existing.Handle);
                 slot.Reused = true;
@@ -160,6 +175,24 @@ internal sealed class RelaunchService : IDisposable
         Restore(run);
     }
 
+    /// <summary>
+    /// The open windows that belong to a flock this load mustn't take from: every flock but the zone flocks on the
+    /// monitors whose zones it fills — those are minimised to make room anyway, so their windows are fair game.
+    /// </summary>
+    private HashSet<long> InAnotherFlock(Run run, IEnumerable<SavedWindow> windows)
+    {
+        var saved = windows.ToList();
+        var monitors = Monitors.All();
+        var onto = Onto(run, saved, monitors);
+        var clearing = saved.Where(w => w.Zone is not null)
+            .Select(w => (onto ?? PlacementMapper.Monitor(w.Placement.Monitor, w.Placement.WorkArea, monitors)).DeviceName)
+            .Distinct()
+            .Select(_controller.CurrentZoneFlock)
+            .OfType<Flock>()
+            .ToHashSet();
+        return run.Before.Where(h => _controller.FlockOf(h) is { } g && !clearing.Contains(g)).ToHashSet();
+    }
+
     private static void Claim(Run run, Slot slot, long handle)
     {
         slot.State = State.Found;
@@ -195,7 +228,7 @@ internal sealed class RelaunchService : IDisposable
     private void Position(Run run, List<Slot> found)
     {
         var monitors = Monitors.All();
-        var onto = Onto(run, found, monitors);
+        var onto = Onto(run, found.Select(s => s.Plan.Window), monitors);
         var layoutsSet = new HashSet<string>();
         MonitorInfo MonitorFor(Slot s)
             => onto ?? PlacementMapper.Monitor(s.Plan.Window.Placement.Monitor, s.Plan.Window.Placement.WorkArea, monitors);
@@ -260,7 +293,7 @@ internal sealed class RelaunchService : IDisposable
 
         if (live.Count > 0) _formFlock(run.Flock, live.Select(s => s.Handle).ToList());
         _run = null;
-        Notice?.Invoke(Summary(run, live));
+        if (Summary(run, live) is { } summary) Notified?.Invoke(summary);
     }
 
     /// <summary>
@@ -285,9 +318,9 @@ internal sealed class RelaunchService : IDisposable
 
     /// <summary>The monitor to load onto (chosen when loading from Settings, or a layout panel's) — only when the
     /// whole flock was on one monitor.</summary>
-    private static MonitorInfo? Onto(Run run, List<Slot> found, IReadOnlyList<MonitorInfo> monitors)
+    private static MonitorInfo? Onto(Run run, IEnumerable<SavedWindow> windows, IReadOnlyList<MonitorInfo> monitors)
     {
-        if (run.Onto is null || found.Select(s => s.Plan.Window.Placement.Monitor).Distinct().Count() != 1) return null;
+        if (run.Onto is null || windows.Select(w => w.Placement.Monitor).Distinct().Count() != 1) return null;
         return monitors.FirstOrDefault(m => m.DeviceName == run.Onto);
     }
 
@@ -298,17 +331,24 @@ internal sealed class RelaunchService : IDisposable
             Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE | Win32.SWP_ASYNCWINDOWPOS);
     }
 
-    private static string Summary(Run run, List<Slot> live)
+    /// <summary>What went wrong with a load, or null if nothing did — the windows turning up says it worked.</summary>
+    private static Notification? Summary(Run run, List<Slot> live)
     {
+        var problems = run.Slots.Where(s => s.State == State.Missed).Select(s => s.Why + ".").ToList();
+        if (run.Blank.Count > 0)
+            problems.Add($"Left {string.Join(", ", run.Blank)} blank — computed inputs aren't worked out yet.");
+
+        if (live.Count == 0)
+            return new($"Couldn't load \"{run.Flock.Name}\"",
+                problems.Count > 0 ? string.Join(" ", problems) : "None of its windows could be found or started.", Warning: true);
+        if (problems.Count == 0) return null;
+
         var started = live.Count(s => !s.Reused);
         var reused = live.Count(s => s.Reused);
-        var missed = run.Slots.Where(s => s.State == State.Missed).Select(s => s.Why + ".").ToList();
-
-        if (live.Count == 0) return $"Couldn't load \"{run.Flock.Name}\": {string.Join(" ", missed)}";
         var parts = new List<string>();
         if (started > 0) parts.Add($"{started} started");
         if (reused > 0) parts.Add($"{reused} already open");
-        return $"Loaded \"{run.Flock.Name}\" ({string.Join(", ", parts)})." + (missed.Count > 0 ? " " + string.Join(" ", missed) : "");
+        return new($"Loaded \"{run.Flock.Name}\" ({string.Join(", ", parts)})", string.Join(" ", problems), Warning: true);
     }
 
     public void Dispose() => _poll.Stop();

@@ -13,6 +13,7 @@ internal sealed class MessageWindow : IDisposable
     private const int WM_HOTKEY = 0x0312;
     private const uint WM_SETTINGCHANGE = 0x001A;
     private const uint WM_DISPLAYCHANGE = 0x007E;
+    private const uint WM_APP = 0x8000;
     private const uint WS_EX_TOOLWINDOW = 0x00000080;
     private static readonly IntPtr HWND_MESSAGE = new(-3);
 
@@ -30,6 +31,9 @@ internal sealed class MessageWindow : IDisposable
 
     /// <summary><c>WM_DISPLAYCHANGE</c>: a monitor was added, removed or changed resolution. Broadcast windows only.</summary>
     public event Action? DisplayChanged;
+
+    /// <summary>A private message (<c>WM_APP</c> and up — e.g. a tray icon's callback): msg, wParam, lParam.</summary>
+    public event Action<uint, IntPtr, IntPtr>? AppMessage;
 
     public IntPtr Handle { get; }
 
@@ -77,6 +81,8 @@ internal sealed class MessageWindow : IDisposable
             SettingChanged?.Invoke((uint)wParam);
         else if (msg == WM_DISPLAYCHANGE)
             DisplayChanged?.Invoke();
+        else if (msg >= WM_APP)
+            AppMessage?.Invoke(msg, wParam, lParam);
         return DefWindowProcW(hWnd, msg, wParam, lParam);
     }
 

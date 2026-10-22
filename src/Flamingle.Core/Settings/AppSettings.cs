@@ -96,6 +96,13 @@ public sealed record AppSettings
     /// Settings › Flocks.</summary>
     public bool DesignModeEditing { get; init; } = true;
 
+    // ---- Notifications ----
+
+    /// <summary>Experimental: news that arrives in the background — update checks, a saved flock that didn't fully
+    /// load, shortcuts another app already uses, a file that couldn't be written — goes to Windows notifications, which
+    /// wait in the Notification Center. Off: the floating toast, like everything else.</summary>
+    public bool WindowsNotifications { get; init; } = true;
+
     // ---- Changelog ----
 
     /// <summary>On the first launch after an update, pop a "what's new" window listing only the releases since

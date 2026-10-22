@@ -188,6 +188,9 @@ internal sealed class LayoutPanelWindow : Window
     /// <summary>Whether the divider strips are showing (the Adjust splits button reads "Done adjusting").</summary>
     public void SetAdjusting(bool on) => _adjust.Content = on ? "Done adjusting" : "Adjust splits";
 
+    /// <summary>Enable Adjust splits only for a layout that has a split to adjust (not a one-zone layout).</summary>
+    public void SetCanAdjust(bool can) => _adjust.IsEnabled = can;
+
     /// <summary>Enable Undo / Redo when there's something to undo / redo.</summary>
     public void SetHistory(bool canUndo, bool canRedo)
     {
