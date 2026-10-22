@@ -630,6 +630,11 @@ internal sealed class SettingsWindow : Window
         page.Children.Add(SectionTitle("Experiments"));
         page.Children.Add(BodyText("Switch these off to compare."));
 
+        page.Children.Add(Row("Background news goes to Windows notifications",
+            "Update checks, saved flocks that didn't fully load, shortcuts another app already uses. Off: Flamingle's " +
+            "own floating message, like everything else.",
+            Toggle(s.WindowsNotifications, on => Update(x => x with { WindowsNotifications = on }))));
+
         page.Children.Add(Row("Linked minimise",
             "Minimising or restoring any one window in a flock (its own title bar, the taskbar) takes the rest with it.",
             Toggle(s.LinkedMinimise, on => Update(x => x with { LinkedMinimise = on }))));

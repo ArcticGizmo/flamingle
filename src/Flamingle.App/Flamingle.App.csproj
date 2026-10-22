@@ -11,7 +11,7 @@
     <Product>Flamingle</Product>
     <Company>Flamingle</Company>
     <Description>Group windows so they minimise, restore, move and relaunch together.</Description>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <!-- Per-monitor DPI aware (v2): every coordinate Flamingle reads or writes is in physical pixels. -->
     <ApplicationManifest>app.manifest</ApplicationManifest>

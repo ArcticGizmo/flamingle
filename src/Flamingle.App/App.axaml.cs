@@ -35,6 +35,7 @@ public partial class App : Application
     private TaskbarService? _taskbar;
     private HotkeyService? _hotkeys;
     private readonly UpdateService _updates = new();
+    private TrayNotifier? _notifier;
     private TrayIcon? _tray;
     private NativeMenuItem? _updateItem;
     private PickerWindow? _picker;
@@ -79,6 +80,9 @@ public partial class App : Application
             _registry.Load(_flocksFile.Load(FlockSnapshot.Empty).ToGroups(WindowQuery.IsAlive));
             _registry.Changed += OnRegistryChanged;
             SaveFlocks();
+
+            _notifier = new TrayNotifier();
+            _notifier.Shown += () => DebugLog.Write("notification shown");
             AdoptStableMonitorKeys();
 
             _controller = new FlockController(_registry, _hooks, () => _settings);
@@ -118,6 +122,7 @@ public partial class App : Application
             _saved = new SavedFlockService(Path.Combine(dataDir, "saved-flocks.json"), _containers);
             _saved.Load();
             _saved.Notice += ToastWindow.Show;
+            _saved.Notified += n => Notify(n, "flocks");
             _saved.Changed += () =>
             {
                 _settingsWindow?.RefreshFlocks();
@@ -126,6 +131,7 @@ public partial class App : Application
 
             _relaunch = new RelaunchService(_containers, _controller, ApplyLayout, FormFlock);
             _relaunch.Notice += ToastWindow.Show;
+            _relaunch.Notified += n => Notify(n, "flocks");
 
             var saved = _saved;
             _design = new FlockDesignService(_containers, _hooks, saved.Update, OpenWindows,
@@ -156,6 +162,7 @@ public partial class App : Application
             SetupTray(desktop);
 
             _updates.Notice += ToastWindow.Show;
+            _updates.Notified += n => Notify(n, "about");
             _updates.Changed += () =>
             {
                 UpdateTrayUpdateItem();
@@ -174,6 +181,7 @@ public partial class App : Application
                 _containers?.Dispose();
                 _taskbar?.Dispose();
                 _hooks.Dispose();
+                _notifier?.Dispose();
                 _tray?.Dispose();
             };
         }
@@ -186,7 +194,20 @@ public partial class App : Application
         if (_hotkeys is null) return;
         var refused = _hotkeys.Apply(_settings);
         if (refused.Count > 0)
-            ToastWindow.Show($"Couldn't register {string.Join(", ", refused)} — another app already uses them.");
+            Notify(new("Some shortcuts aren't working",
+                $"Another app already uses {string.Join(", ", refused)}. Change them in Settings → Shortcuts.", Warning: true),
+                "shortcuts");
+    }
+
+    /// <summary>
+    /// Background news: a Windows notification (clicking it opens Settings on <paramref name="page"/>), or a toast
+    /// when they're switched off or Windows won't take one.
+    /// </summary>
+    private void Notify(Notification n, string page)
+    {
+        var sent = _settings.WindowsNotifications && _notifier?.Show(n.Title, n.Text, n.Warning, () => ShowSettings(page)) == true;
+        DebugLog.Write($"notify \"{n.Title}\": {(sent ? "sent to Windows" : "toast")}");
+        if (!sent) ToastWindow.Show($"{n.Title} — {n.Text}");
     }
 
     /// <summary>The tray holds only the essentials; everything else lives in the settings window, which clicking
@@ -194,6 +215,10 @@ public partial class App : Application
     private void SetupTray(IClassicDesktopStyleApplicationLifetime desktop)
     {
         var menu = new NativeMenu();
+
+        // Read-only, like Perch's: which Flamingle this is (the (Dev) suffix marks a dev build beside an installed one).
+        menu.Add(new NativeMenuItem($"Flamingle{AppProfile.DisplaySuffix} - {Version}") { IsEnabled = false });
+        menu.Add(new NativeMenuItemSeparator());
 
         var settings = new NativeMenuItem("Settings…");
         settings.Click += (_, _) => ShowSettings();
@@ -347,9 +372,7 @@ public partial class App : Application
     {
         if (_relaunch is null) return;
         var resolved = InputValues.Resolve(flock.InputList, new Dictionary<string, string>(), _ => null);
-        if (resolved.Failed.Count > 0)
-            ToastWindow.Show($"Loading \"{flock.Name}\" with {string.Join(", ", resolved.Failed)} blank — computed inputs aren't worked out yet.");
-        _relaunch.Load(flock, resolved.Values, ontoDevice);
+        _relaunch.Load(flock, resolved.Values, ontoDevice, resolved.Failed);
     }
 
     /// <summary>The windows a load placed become a flock with the saved flock's name. If they all went into one
