@@ -114,7 +114,7 @@ by hand, use **New flock…** in Settings → Flocks.
 - **Hold Shift while dragging** a window and the monitor's zones appear. Drop it to snap it into the zone
   under the cursor; hold **Ctrl** as well to span several zones. (Settings → Zones can change the key to Alt,
   or show the zones on every drag.)
-- **Each monitor has its own layout**: 2–4 columns, 2 or 3 rows, 2×2 / 2×3 / 3×3 grids, priority
+- **Each monitor has its own layout** (one per virtual desktop): 2–4 columns, 2 or 3 rows, 2×2 / 2×3 / 3×3 grids, priority
   (25/50/25), main + side stack, half + 2×2, wide centre + corners, or one centred window. Zones sit flush,
   with no gaps.
 - **A layout is a flock.** Everything in a monitor's zones minimises and restores together, with one zone

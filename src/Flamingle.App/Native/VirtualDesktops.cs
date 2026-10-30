@@ -69,6 +69,39 @@ internal static class VirtualDesktops
         return null;
     }
 
+    /// <summary>Every desktop, or null if it can't be told. Reads the shell's registry record (undocumented, best
+    /// effort).</summary>
+    public static IReadOnlyList<Guid>? All()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(DesktopsKey);
+            if (key?.GetValue("VirtualDesktopIDs") is not byte[] { Length: >= 16 } ids) return null;
+            return [.. Enumerable.Range(0, ids.Length / 16).Select(i => new Guid(ids.AsSpan(i * 16, 16)))];
+        }
+        catch (Exception e) when (e is System.Security.SecurityException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The desktop the user is looking at, or null if it can't be told. The documented interface can't say, so this
+    /// reads the shell's registry record (undocumented, best effort), else the foreground window's desktop.
+    /// </summary>
+    public static Guid? Current()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(DesktopsKey);
+            if (key?.GetValue("CurrentVirtualDesktop") is byte[] { Length: 16 } id) return new Guid(id);
+        }
+        catch (Exception e) when (e is System.Security.SecurityException or IOException or UnauthorizedAccessException)
+        {
+        }
+        return Win32.GetForegroundWindow() is var fg && fg != IntPtr.Zero ? DesktopOf(fg) : null;
+    }
+
     private const string DesktopsKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops";
 
     /// <summary>Move one of Flamingle's own windows to <paramref name="desktop"/>.</summary>

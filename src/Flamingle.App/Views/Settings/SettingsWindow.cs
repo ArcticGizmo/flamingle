@@ -471,6 +471,10 @@ internal sealed class SettingsWindow : Window
             "Windows dropped into a monitor's zones minimise and restore together.",
             Toggle(s.ZonesFormFlock, on => Update(x => x with { ZonesFormFlock = on }))));
 
+        page.Children.Add(Row("A separate layout on each virtual desktop",
+            "Each desktop keeps its own layout, frame and splits on a monitor; changing one never moves another's windows.",
+            Toggle(s.LayoutPerDesktop, on => Update(x => x with { LayoutPerDesktop = on }))));
+
         page.Children.Add(Row("A separate zone flock on each virtual desktop",
             "Zoned windows on different desktops never minimise or restore together.",
             Toggle(s.ZoneFlockPerDesktop, on => Update(x => x with { ZoneFlockPerDesktop = on })),

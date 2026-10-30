@@ -93,10 +93,13 @@ public partial class App : Application
             _containers.Notice += ToastWindow.Show;
             _containers.Slotted += (hwnd, monitor) => _controller.JoinZoneFlock(hwnd, monitor);
             _containers.Unslotted += hwnd => _controller.LeaveZoneFlock(hwnd);
-            _containers.Rehomed += (from, to) =>
-                _registry.RehomeZoneFlocks(from, to.DeviceName, g => FlockController.ZoneFlockName(to.DeviceName, g.ZoneDesktop));
-            _containers.Swapped += (a, b) =>
-                _registry.SwapZoneFlocks(a.DeviceName, b.DeviceName, g => FlockController.ZoneFlockName(g.ZoneMonitor!, g.ZoneDesktop));
+            // A layout of one desktop takes only that desktop's zone flock along (all of them, if zone flocks span desktops).
+            _containers.Rehomed += (from, to, desktop) =>
+                _registry.RehomeZoneFlocks(from, to.DeviceName, g => FlockController.ZoneFlockName(to.DeviceName, g.ZoneDesktop),
+                    _settings.ZoneFlockPerDesktop ? desktop : null);
+            _containers.Swapped += (a, b, desktop) =>
+                _registry.SwapZoneFlocks(a.DeviceName, b.DeviceName, g => FlockController.ZoneFlockName(g.ZoneMonitor!, g.ZoneDesktop),
+                    _settings.ZoneFlockPerDesktop ? desktop : null);
             _containers.LayoutPicked += ApplyLayout;
             _containers.SettingsRequested += () => ShowSettings("zones");
             _containers.MinimiseRequested += device =>
@@ -443,6 +446,8 @@ public partial class App : Application
 
         if (old.LayoutMenuHotkey != settings.LayoutMenuHotkey || old.SlotHotkeyModifiers != settings.SlotHotkeyModifiers)
             ApplyHotkeys();
+        if (old.LayoutPerDesktop != settings.LayoutPerDesktop)
+            _containers?.RekeyDesktops();
         _taskbar?.Sync();
         _settingsWindow?.Refresh();
     }

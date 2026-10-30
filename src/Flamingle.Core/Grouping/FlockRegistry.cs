@@ -53,6 +53,9 @@ public sealed class FlockRegistry
     /// <summary>Every zone flock on a monitor (one per virtual desktop).</summary>
     public IEnumerable<Flock> ZoneFlocksOn(string deviceName) => _groups.Where(g => g.ZoneMonitor == deviceName);
 
+    private IEnumerable<Flock> ZoneFlocksOn(string deviceName, Guid? desktop)
+        => ZoneFlocksOn(deviceName).Where(g => desktop is null || g.ZoneDesktop == desktop);
+
     /// <summary>Pin an existing zone flock to a virtual desktop (zone flocks saved before they were per desktop).</summary>
     public void SetZoneDesktop(Flock group, Guid desktop, string newName)
     {
@@ -63,11 +66,12 @@ public sealed class FlockRegistry
     }
 
     /// <summary>A zone layout moved to another monitor: its zone flocks (one per desktop) follow, renamed unless the
-    /// user named them.</summary>
-    public void RehomeZoneFlocks(string from, string to, Func<Flock, string> nameFor)
+    /// user named them. With a <paramref name="desktop"/> (a layout of that desktop's own), only that desktop's
+    /// zone flock moves.</summary>
+    public void RehomeZoneFlocks(string from, string to, Func<Flock, string> nameFor, Guid? desktop = null)
     {
         if (from == to) return;
-        var moving = ZoneFlocksOn(from).ToList();
+        var moving = ZoneFlocksOn(from, desktop).ToList();
         if (moving.Count == 0) return;
         foreach (var group in moving)
         {
@@ -78,12 +82,13 @@ public sealed class FlockRegistry
     }
 
     /// <summary>Two zone layouts swapped monitors: each monitor's zone flocks move to the other, renamed unless the
-    /// user named them. <paramref name="nameFor"/> sees each flock already on its new monitor.</summary>
-    public void SwapZoneFlocks(string a, string b, Func<Flock, string> nameFor)
+    /// user named them. <paramref name="nameFor"/> sees each flock already on its new monitor. With a
+    /// <paramref name="desktop"/>, only that desktop's zone flocks swap.</summary>
+    public void SwapZoneFlocks(string a, string b, Func<Flock, string> nameFor, Guid? desktop = null)
     {
         if (a == b) return;
-        var fromA = ZoneFlocksOn(a).ToList();
-        var fromB = ZoneFlocksOn(b).ToList();
+        var fromA = ZoneFlocksOn(a, desktop).ToList();
+        var fromB = ZoneFlocksOn(b, desktop).ToList();
         if (fromA.Count == 0 && fromB.Count == 0) return;
         foreach (var group in fromA) group.ZoneMonitor = b;
         foreach (var group in fromB) group.ZoneMonitor = a;

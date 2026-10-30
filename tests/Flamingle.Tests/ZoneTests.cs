@@ -241,6 +241,186 @@ public class ZoneContainerTests
         Assert.Equal(c.Frame, back.Frame);
         Assert.Equal([2L], back.Slots.Keys);
     }
+
+    [Fact]
+    public void Desktop_survives_a_round_trip()
+    {
+        var desktop = Guid.NewGuid();
+        var c = new ZoneContainer(@"\\.\DISPLAY1", "columns-2", new PixelRect(0, 0, 800, 600)) { Desktop = desktop };
+        Assert.Equal(desktop, ZoneContainerState.From(c).ToContainer(_ => true).Desktop);
+    }
+
+    [Fact]
+    public void A_twin_copies_the_layout_but_not_the_windows()
+    {
+        var c = new ZoneContainer(@"\\.\DISPLAY1", "columns-3", new PixelRect(10, 0, 800, 600))
+        {
+            CustomZones = [new(0, 0, 0.5, 1), new(0.5, 0, 0.25, 1), new(0.75, 0, 0.25, 1)],
+        };
+        c.Slots[1] = new ZoneSlot(1, 10, [0]);
+        var desktop = Guid.NewGuid();
+
+        var twin = c.Twin(desktop);
+
+        Assert.Equal((c.DeviceName, c.LayoutId, c.Frame, desktop), (twin.DeviceName, twin.LayoutId, twin.Frame, twin.Desktop));
+        Assert.Equal(c.CustomZones, twin.CustomZones);
+        Assert.Empty(twin.Slots);
+    }
+}
+
+public class ZoneDesktopTests
+{
+    private const string Display1 = @"\\.\DISPLAY1";
+    private const string Display2 = @"\\.\DISPLAY2";
+    private static readonly Guid DesktopA = new("aaaaaaaa-0000-0000-0000-000000000000");
+    private static readonly Guid DesktopB = new("bbbbbbbb-0000-0000-0000-000000000000");
+
+    private static ZoneContainer Layout(string device, Guid? desktop, params long[] handles)
+    {
+        var c = new ZoneContainer(device, "columns-2", new PixelRect(0, 0, 800, 600)) { Desktop = desktop };
+        foreach (var h in handles) c.Slots[h] = new ZoneSlot(h, 1, [0]);
+        return c;
+    }
+
+    [Fact]
+    public void Split_gives_each_desktop_its_own_copy_of_the_layout()
+    {
+        var shared = Layout(Display1, null, 1, 2, 3);
+        shared.CustomZones = [new(0, 0, 0.3, 1), new(0.3, 0, 0.7, 1)];
+        var containers = new List<ZoneContainer> { shared };
+        var desktops = new Dictionary<long, Guid?> { [1] = DesktopA, [2] = DesktopB, [3] = DesktopA };
+
+        var gained = ZoneDesktops.Split(containers, h => desktops[h], current: DesktopB);
+
+        // Most of its windows were on A, so it stays there; B gets a copy with B's window.
+        Assert.Equal(DesktopA, shared.Desktop);
+        Assert.Equal([1L, 3L], shared.Slots.Keys.Order());
+        var b = Assert.Single(containers, c => c.Desktop == DesktopB);
+        Assert.Equal([2L], b.Slots.Keys);
+        Assert.Equal(shared.CustomZones, b.CustomZones);
+        Assert.Equal([b], gained);
+    }
+
+    [Fact]
+    public void Split_puts_an_empty_layout_on_the_current_desktop()
+    {
+        var empty = Layout(Display1, null);
+        var containers = new List<ZoneContainer> { empty };
+
+        ZoneDesktops.Split(containers, _ => null, current: DesktopB);
+
+        Assert.Equal(DesktopB, empty.Desktop);
+        Assert.Single(containers);
+    }
+
+    [Fact]
+    public void Split_keeps_windows_whose_desktop_cant_be_read_with_the_layout()
+    {
+        var shared = Layout(Display1, null, 1, 2);
+        var containers = new List<ZoneContainer> { shared };
+
+        ZoneDesktops.Split(containers, h => h == 1 ? DesktopA : null, current: DesktopB);
+
+        Assert.Equal(DesktopA, shared.Desktop);
+        Assert.Equal([1L, 2L], shared.Slots.Keys.Order());
+        Assert.Single(containers);
+    }
+
+    [Fact]
+    public void Split_leaves_a_layout_alone_when_no_desktop_can_be_read()
+    {
+        var shared = Layout(Display1, null, 1);
+        var containers = new List<ZoneContainer> { shared };
+
+        ZoneDesktops.Split(containers, _ => null, current: null);
+
+        Assert.Null(shared.Desktop);
+        Assert.Single(containers);
+    }
+
+    [Fact]
+    public void Split_folds_into_a_desktops_existing_layout()
+    {
+        var own = Layout(Display1, DesktopA, 1);
+        var stray = Layout(Display1, null, 2);
+        var containers = new List<ZoneContainer> { own, stray };
+
+        var gained = ZoneDesktops.Split(containers, _ => DesktopA, current: DesktopA);
+
+        Assert.Equal([own], containers);
+        Assert.Equal([1L, 2L], own.Slots.Keys.Order());
+        Assert.Equal([own], gained);
+    }
+
+    [Fact]
+    public void Split_leaves_layouts_already_on_a_desktop_alone()
+    {
+        var a = Layout(Display1, DesktopA, 1);
+        var containers = new List<ZoneContainer> { a };
+
+        var gained = ZoneDesktops.Split(containers, _ => DesktopB, current: DesktopB);
+
+        Assert.Equal(DesktopA, a.Desktop);
+        Assert.Equal([1L], a.Slots.Keys);
+        Assert.Empty(gained);
+    }
+
+    [Fact]
+    public void Merge_keeps_the_current_desktops_layout_per_monitor()
+    {
+        var a = Layout(Display1, DesktopA, 1);
+        var b = Layout(Display1, DesktopB, 2);
+        var other = Layout(Display2, DesktopA, 3);
+        var containers = new List<ZoneContainer> { a, b, other };
+
+        var kept = ZoneDesktops.Merge(containers, current: DesktopB);
+
+        Assert.Equal([b, other], containers);
+        Assert.Equal([1L, 2L], b.Slots.Keys.Order());
+        Assert.All(containers, c => Assert.Null(c.Desktop));
+        Assert.Equal([b, other], kept);
+    }
+
+    [Fact]
+    public void Prune_drops_empty_layouts_on_closed_desktops()
+    {
+        var open = Layout(Display1, DesktopA);
+        var closed = Layout(Display1, DesktopB);
+        var shared = Layout(Display2, null);
+        var containers = new List<ZoneContainer> { open, closed, shared };
+
+        Assert.True(ZoneDesktops.PruneClosed(containers, [DesktopA]));
+        Assert.Equal([open, shared], containers);
+    }
+
+    [Fact]
+    public void Prune_keeps_a_closed_desktops_layout_while_it_has_windows()
+    {
+        var closed = Layout(Display1, DesktopB, 1);
+        var containers = new List<ZoneContainer> { closed };
+
+        Assert.False(ZoneDesktops.PruneClosed(containers, [DesktopA]));
+        Assert.Equal([closed], containers);
+    }
+
+    [Fact]
+    public void Prune_keeps_everything_when_the_desktops_are_unknown()
+    {
+        var containers = new List<ZoneContainer> { Layout(Display1, DesktopA) };
+
+        Assert.False(ZoneDesktops.PruneClosed(containers, []));
+        Assert.Single(containers);
+    }
+
+    [Fact]
+    public void Merge_leaves_a_shared_layout_alone()
+    {
+        var shared = Layout(Display1, null, 1);
+        var containers = new List<ZoneContainer> { shared };
+
+        Assert.Empty(ZoneDesktops.Merge(containers, current: DesktopA));
+        Assert.Equal([shared], containers);
+    }
 }
 
 public class ZoneFlockRegistryTests
@@ -316,6 +496,34 @@ public class ZoneFlockRegistryTests
         Assert.Same(b, reg.ForZone(@"\\.\DISPLAY2", DesktopB));
         Assert.Equal("Zones · True", a.Name);
         Assert.Equal("Zones · False", b.Name);
+    }
+
+    [Fact]
+    public void Rehoming_one_desktops_layout_leaves_other_desktops_zone_flocks()
+    {
+        var reg = new FlockRegistry();
+        var a = reg.Create("A", [M(1)], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: DesktopA);
+        var b = reg.Create("B", [M(2)], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: DesktopB);
+
+        reg.RehomeZoneFlocks(@"\\.\DISPLAY1", @"\\.\DISPLAY2", g => g.Name, DesktopA);
+
+        Assert.Same(a, reg.ForZone(@"\\.\DISPLAY2", DesktopA));
+        Assert.Same(b, reg.ForZone(@"\\.\DISPLAY1", DesktopB));
+    }
+
+    [Fact]
+    public void Swapping_one_desktops_layouts_leaves_other_desktops_zone_flocks()
+    {
+        var reg = new FlockRegistry();
+        var a1 = reg.Create("A1", [M(1)], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: DesktopA);
+        var a2 = reg.Create("A2", [M(2)], zoneMonitor: @"\\.\DISPLAY2", zoneDesktop: DesktopA);
+        var b1 = reg.Create("B1", [M(3)], zoneMonitor: @"\\.\DISPLAY1", zoneDesktop: DesktopB);
+
+        reg.SwapZoneFlocks(@"\\.\DISPLAY1", @"\\.\DISPLAY2", g => g.Name, DesktopA);
+
+        Assert.Equal(@"\\.\DISPLAY2", a1.ZoneMonitor);
+        Assert.Equal(@"\\.\DISPLAY1", a2.ZoneMonitor);
+        Assert.Equal(@"\\.\DISPLAY1", b1.ZoneMonitor);
     }
 
     [Fact]
