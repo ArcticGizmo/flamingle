@@ -88,6 +88,10 @@ FancyZones-style drag-to-snap. This is inspiration only and doesn't depend on Po
   the saved flocks.
 - Windows dropped into zones on a monitor form that monitor's *zone flock*. This is a toggle; it
   replaces guessing Snap Groups.
+- Layouts (preset, frame, splits) are per monitor *per virtual desktop* (toggle, on by default), so editing one
+  desktop's layout never re-flows another's windows. A zoned window moved to another desktop goes into that
+  desktop's layout on the same monitor (a copy of the one it left, if there isn't one yet). Empty layouts on
+  desktops that have been closed are dropped.
 - Zone flocks are per monitor *per virtual desktop* (toggle, on by default), so zoned windows on
   different desktops never minimise or restore together. A zoned window moved to another desktop moves
   to that desktop's zone flock. Hand-picked flocks are not split by desktop.

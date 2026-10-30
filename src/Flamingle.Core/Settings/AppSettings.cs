@@ -54,6 +54,10 @@ public sealed record AppSettings
     /// different desktops never minimise / restore together. Off: one zone flock per monitor, across desktops.</summary>
     public bool ZoneFlockPerDesktop { get; init; } = true;
 
+    /// <summary>Experimental: each virtual desktop has its own layout (preset, frame, splits) on a monitor, so changing
+    /// one desktop's layout never re-flows another's windows. Off: one layout per monitor, across desktops.</summary>
+    public bool LayoutPerDesktop { get; init; } = true;
+
     /// <summary>Experimental: a window pulled out of its zones shrinks back to its pre-snap size as soon as the
     /// drag starts (like FancyZones / Windows Snap), rather than when it's dropped.</summary>
     public bool RestoreSizeDuringDrag { get; init; } = true;

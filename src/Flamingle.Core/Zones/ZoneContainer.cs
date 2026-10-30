@@ -39,7 +39,8 @@ public sealed record ZoneSlot(long Handle, uint ProcessId, List<int> Zones, Pixe
 /// <summary>
 /// A zone layout as a movable container: a layout, the frame it's laid out in (physical px — the monitor's
 /// work area by default, but the user can move / resize it), and the windows snapped into its zones. Moving
-/// the frame moves every slotted window with it. One container per monitor.
+/// the frame moves every slotted window with it. One container per monitor per virtual desktop (or per monitor, with
+/// layouts shared across desktops).
 /// </summary>
 public sealed class ZoneContainer
 {
@@ -56,6 +57,9 @@ public sealed class ZoneContainer
 
     /// <summary>The monitor the container currently lives on.</summary>
     public string DeviceName { get; set; }
+
+    /// <summary>The virtual desktop the container belongs to, or null when one layout serves every desktop.</summary>
+    public Guid? Desktop { get; set; }
 
     /// <summary>The preset. Setting it clears any custom splits.</summary>
     public string LayoutId
@@ -89,6 +93,10 @@ public sealed class ZoneContainer
     }
 
     public IReadOnlyList<PixelRect> Zones() => ZoneMath.Resolve(Layout, Frame);
+
+    /// <summary>The same layout, frame and splits on the same monitor for another desktop — with no windows yet.</summary>
+    public ZoneContainer Twin(Guid? desktop)
+        => new(DeviceName, LayoutId, Frame) { CustomZones = CustomZones?.ToList(), Desktop = desktop };
 
     public IReadOnlyList<ZoneDivider> Dividers() => ZoneDividers.Find(Layout.Zones);
 
@@ -152,16 +160,17 @@ public sealed class ZoneContainer
 /// <summary>The on-disk form of the containers (<c>zones.json</c>).</summary>
 /// <param name="WorkArea">The monitor's work area when the frame was saved — so on the next start the frame can
 /// follow any app bar that has since come or gone (<see cref="ZoneContainer.Refit"/>). Null in older files.</param>
+/// <param name="Desktop">Null in older files, from before layouts were per desktop.</param>
 public sealed record ZoneContainerState(
     string DeviceName, string LayoutId, PixelRect Frame, List<ZoneSlot> Slots, List<ZoneFraction>? CustomZones = null,
-    PixelRect? WorkArea = null)
+    PixelRect? WorkArea = null, Guid? Desktop = null)
 {
     public static ZoneContainerState From(ZoneContainer c, PixelRect? workArea = null)
-        => new(c.DeviceName, c.LayoutId, c.Frame, [.. c.Slots.Values], c.CustomZones?.ToList(), workArea);
+        => new(c.DeviceName, c.LayoutId, c.Frame, [.. c.Slots.Values], c.CustomZones?.ToList(), workArea, c.Desktop);
 
     public ZoneContainer ToContainer(Func<ZoneSlot, bool> isAlive)
     {
-        var c = new ZoneContainer(DeviceName, LayoutId, Frame) { CustomZones = CustomZones };
+        var c = new ZoneContainer(DeviceName, LayoutId, Frame) { CustomZones = CustomZones, Desktop = Desktop };
         foreach (var s in Slots.Where(isAlive)) c.Slots[s.Handle] = s;
         return c;
     }

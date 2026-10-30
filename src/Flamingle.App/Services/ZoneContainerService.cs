@@ -12,7 +12,8 @@ using PixelRect = Flamingle.Core.Geometry.PixelRect;
 namespace Flamingle.App.Services;
 
 /// <summary>
-/// Owns the zone containers — one per monitor, each a layout laid out in a movable frame, plus the windows
+/// Owns the zone containers — one per monitor per virtual desktop (<see cref="AppSettings.LayoutPerDesktop"/>; else
+/// one per monitor), each a layout laid out in a movable frame, plus the windows
 /// snapped into its zones. Layouts show nothing on screen until edit mode (the edit-layout hotkey): then the
 /// layout gets an outline you drag to move it, a panel of presets and actions, and a strip over each divider
 /// between zones (drag to re-split). Moving the frame or a divider re-places every slotted window in one
@@ -93,6 +94,8 @@ internal sealed class ZoneContainerService : IDisposable
         _sync.Tick += (_, _) =>
         {
             _sync.Stop();
+            FollowDesktops();
+            PruneClosedDesktops();
             SyncHandles();
         };
 
@@ -120,11 +123,12 @@ internal sealed class ZoneContainerService : IDisposable
     /// <summary>A window left its layout (dragged out, or released).</summary>
     public event Action<IntPtr>? Unslotted;
 
-    /// <summary>A container moved to another monitor (from device, to monitor) — its zone flock follows.</summary>
-    public event Action<string, MonitorInfo>? Rehomed;
+    /// <summary>A container moved to another monitor (from device, to monitor, its desktop — null if it serves every
+    /// desktop) — its zone flock follows.</summary>
+    public event Action<string, MonitorInfo, Guid?>? Rehomed;
 
-    /// <summary>Two layouts swapped monitors — their zone flocks swap too.</summary>
-    public event Action<MonitorInfo, MonitorInfo>? Swapped;
+    /// <summary>Two layouts (of one desktop, or null for every desktop) swapped monitors — their zone flocks swap too.</summary>
+    public event Action<MonitorInfo, MonitorInfo, Guid?>? Swapped;
 
     /// <summary>The chip's "Minimise layout" (device name of the layout's monitor).</summary>
     public event Action<string>? MinimiseRequested;
@@ -171,7 +175,7 @@ internal sealed class ZoneContainerService : IDisposable
             var monitor = monitors.FirstOrDefault(m => m.DeviceName == state.DeviceName)
                           ?? monitors.FirstOrDefault(m => m.GdiName == state.DeviceName);
             if (monitor is null) continue;   // that monitor's gone; forget the container
-            if (ContainerOn(monitor.DeviceName) is not null) continue;
+            if (ContainerOn(monitor.DeviceName, state.Desktop) is not null) continue;
             var c = state.ToContainer(IsAlive);
             c.DeviceName = monitor.DeviceName;
             // A side panel may have docked or closed since the last run.
@@ -181,7 +185,7 @@ internal sealed class ZoneContainerService : IDisposable
             _containers.Add(c);
         }
         foreach (var m in monitors) _workAreas[m.DeviceName] = m.WorkArea;
-        Save();
+        RekeyDesktops();
 
         _hooks.ForegroundChanged += OnForegroundChanged;
 
@@ -228,23 +232,31 @@ internal sealed class ZoneContainerService : IDisposable
 
     // ---- Queries used by the drag-to-snap overlay ----
 
-    public ZoneContainer? ContainerOn(string deviceName) => _containers.FirstOrDefault(c => c.DeviceName == deviceName);
+    /// <param name="desktop">A desktop key (<see cref="CurrentDesktopKey"/>, <see cref="DesktopKeyOf"/>).</param>
+    public ZoneContainer? ContainerOn(string deviceName, Guid? desktop)
+        => _containers.FirstOrDefault(c => c.DeviceName == deviceName && c.Desktop == desktop);
 
-    public string LayoutIdFor(MonitorInfo monitor)
-        => ContainerOn(monitor.DeviceName)?.LayoutId ?? _settings().LayoutIdFor(monitor.DeviceName);
+    /// <summary>The layout on a monitor on the desktop the user is looking at.</summary>
+    public string LayoutIdFor(MonitorInfo monitor) => LayoutIdFor(monitor, CurrentDesktopKey());
 
-    /// <summary>The zones for a monitor: its container's (in the container's frame) or the default layout
-    /// filling the work area.</summary>
-    public IReadOnlyList<PixelRect> ZonesFor(MonitorInfo monitor)
-        => ContainerOn(monitor.DeviceName)?.Zones()
-           ?? ZoneMath.Resolve(ZoneLayout.ById(LayoutIdFor(monitor)), monitor.WorkArea);
+    private string LayoutIdFor(MonitorInfo monitor, Guid? desktop)
+        => ContainerOn(monitor.DeviceName, desktop)?.LayoutId ?? _settings().LayoutIdFor(monitor.DeviceName);
+
+    /// <summary>The zones for a monitor on the desktop the user is looking at: its container's (in the container's
+    /// frame) or the default layout filling the work area.</summary>
+    public IReadOnlyList<PixelRect> ZonesFor(MonitorInfo monitor) => ZonesFor(monitor, CurrentDesktopKey());
+
+    private IReadOnlyList<PixelRect> ZonesFor(MonitorInfo monitor, Guid? desktop)
+        => ContainerOn(monitor.DeviceName, desktop)?.Zones()
+           ?? ZoneMath.Resolve(ZoneLayout.ById(LayoutIdFor(monitor, desktop)), monitor.WorkArea);
 
     /// <summary>The zones <paramref name="layoutId"/> would have on a monitor — in its layout's frame if it has one
     /// (with its custom splits, if that's the current layout), else filling the work area. For the snap strip.</summary>
     public IReadOnlyList<PixelRect> ZonesFor(MonitorInfo monitor, string layoutId)
     {
-        if (layoutId == LayoutIdFor(monitor)) return ZonesFor(monitor);
-        var frame = ContainerOn(monitor.DeviceName)?.Frame ?? monitor.WorkArea;
+        var desktop = CurrentDesktopKey();
+        if (layoutId == LayoutIdFor(monitor, desktop)) return ZonesFor(monitor, desktop);
+        var frame = ContainerOn(monitor.DeviceName, desktop)?.Frame ?? monitor.WorkArea;
         return ZoneMath.Resolve(ZoneLayout.ById(layoutId), frame);
     }
 
@@ -275,7 +287,7 @@ internal sealed class ZoneContainerService : IDisposable
     {
         // Moving between zones keeps the size from before the *first* snap.
         var previous = RemoveSlot(hwnd);
-        Slot(GetOrCreate(monitor), hwnd, zones, previous is not null ? previous.Restore : before);
+        Slot(GetOrCreate(monitor, DesktopKeyOf(hwnd)), hwnd, zones, previous is not null ? previous.Restore : before);
         if (joinZoneFlock) Slotted?.Invoke(hwnd, monitor);
         Save();
         SyncHandles();
@@ -285,7 +297,7 @@ internal sealed class ZoneContainerService : IDisposable
     /// window going back into its layout): sized to them now, again once Windows has settled, and slotted.</summary>
     public void SnapInto(IntPtr hwnd, MonitorInfo monitor, IReadOnlyList<int> zones, bool joinZoneFlock = true)
     {
-        var all = ZonesFor(monitor);
+        var all = ZonesFor(monitor, DesktopKeyOf(hwnd));
         if (all.Count == 0) return;
         var valid = zones.Select(i => Math.Clamp(i, 0, all.Count - 1)).Distinct().ToList();
         var target = ZoneMath.Bounds(all, valid.Count > 0 ? valid : [0]);
@@ -314,10 +326,11 @@ internal sealed class ZoneContainerService : IDisposable
         Save();
     }
 
-    /// <summary>Switch a monitor's layout. Windows already in its zones re-flow into the new ones.</summary>
+    /// <summary>Switch a monitor's layout on the desktop the user is looking at. Windows already in its zones re-flow
+    /// into the new ones.</summary>
     public void SetLayout(MonitorInfo monitor, string layoutId)
     {
-        if (ContainerOn(monitor.DeviceName) is not { } c) return;
+        if (ContainerOn(monitor.DeviceName, CurrentDesktopKey()) is not { } c) return;
         BeginChange("change layout");
         c.LayoutId = layoutId;
         Reflow(c);
@@ -332,7 +345,7 @@ internal sealed class ZoneContainerService : IDisposable
     /// </summary>
     public void FillWithOpenWindows(MonitorInfo monitor)
     {
-        var c = GetOrCreate(monitor);
+        var c = GetOrCreate(monitor, CurrentDesktopKey());
         Prune();
         var zones = c.Zones();
 
@@ -409,14 +422,18 @@ internal sealed class ZoneContainerService : IDisposable
                 continue;
             }
             if (was == now) continue;
-            if (ContainerOn(monitor.DeviceName) is { } busy && (_drag?.Container == busy || _resize?.Container == busy))
+            // Every desktop's layout on the monitor shares its work area.
+            var onMonitor = _containers.Where(c => c.DeviceName == monitor.DeviceName).ToList();
+            if (onMonitor.Any(c => _drag?.Container == c || _resize?.Container == c))
                 continue;   // mid-drag: caught up when the drag ends
 
             _workAreas[monitor.DeviceName] = now;
-            if (ContainerOn(monitor.DeviceName) is not { } c) continue;
-            c.Frame = ZoneContainer.Refit(c.Frame, was, now);
-            Reflow(c);
-            changed = true;
+            foreach (var c in onMonitor)
+            {
+                c.Frame = ZoneContainer.Refit(c.Frame, was, now);
+                Reflow(c);
+                changed = true;
+            }
         }
 
         if (!changed) return;
@@ -596,7 +613,7 @@ internal sealed class ZoneContainerService : IDisposable
         if (!Win32.GetCursorPos(out var cursor) || MonitorAt((cursor.x, cursor.y)) is not { } monitor) return;
         Prune();
         // Any monitor can be edited, windows or not — set a layout up (preset, frame, splits) before using it.
-        EnterEdit(GetOrCreate(monitor), monitor);
+        EnterEdit(GetOrCreate(monitor, CurrentDesktopKey()), monitor);
     }
 
     private void EnterEdit(ZoneContainer c, MonitorInfo monitor)
@@ -704,12 +721,12 @@ internal sealed class ZoneContainerService : IDisposable
         if (moves.Count == 2 && moves[0].From == moves[1].C.DeviceName && moves[1].From == moves[0].C.DeviceName
             && On(moves[0].From) is { } a && On(moves[1].From) is { } b)
         {
-            Swapped?.Invoke(a, b);
+            Swapped?.Invoke(a, b, moves[0].C.Desktop);
         }
         else
         {
             foreach (var (c, from) in moves)
-                if (On(c.DeviceName) is { } to) Rehomed?.Invoke(from, to);
+                if (On(c.DeviceName) is { } to) Rehomed?.Invoke(from, to, c.Desktop);
         }
 
         foreach (var c in step.Before.Keys.Where(_containers.Contains))
@@ -1017,17 +1034,17 @@ internal sealed class ZoneContainerService : IDisposable
         c.Frame = ZoneContainer.MoveBetween(d.StartFrame, source.WorkArea, target.WorkArea);
         c.DeviceName = target.DeviceName;
 
-        if (ContainerOn(target.DeviceName) is { } other && other != c)
+        if (ContainerOn(target.DeviceName, c.Desktop) is { } other && other != c)
         {
             other.Frame = ZoneContainer.MoveBetween(other.Frame, target.WorkArea, source.WorkArea);
             other.DeviceName = source.DeviceName;
             Reflow(other);
             BringToFront(other);
-            Swapped?.Invoke(source, target);
+            Swapped?.Invoke(source, target, c.Desktop);
         }
         else
         {
-            Rehomed?.Invoke(d.StartDevice, target);
+            Rehomed?.Invoke(d.StartDevice, target, c.Desktop);
         }
         BringToFront(c);
     }
@@ -1055,12 +1072,74 @@ internal sealed class ZoneContainerService : IDisposable
 
     // ---- Helpers ----
 
-    private ZoneContainer GetOrCreate(MonitorInfo monitor)
+    private ZoneContainer GetOrCreate(MonitorInfo monitor, Guid? desktop)
     {
-        if (ContainerOn(monitor.DeviceName) is { } c) return c;
-        c = new ZoneContainer(monitor.DeviceName, LayoutIdFor(monitor), monitor.WorkArea);
+        if (ContainerOn(monitor.DeviceName, desktop) is { } c) return c;
+        c = new ZoneContainer(monitor.DeviceName, LayoutIdFor(monitor, desktop), monitor.WorkArea) { Desktop = desktop };
         _containers.Add(c);
         return c;
+    }
+
+    // ---- Virtual desktops ----
+
+    /// <summary>The desktop key for the desktop the user is looking at: null when layouts serve every desktop.</summary>
+    private Guid? CurrentDesktopKey() => _settings().LayoutPerDesktop ? VirtualDesktops.Current() : null;
+
+    /// <summary>The desktop key for a window's desktop (the one showing, if the window's can't be read).</summary>
+    private Guid? DesktopKeyOf(IntPtr hwnd)
+        => _settings().LayoutPerDesktop ? VirtualDesktops.DesktopOf(hwnd) ?? VirtualDesktops.Current() : null;
+
+    /// <summary>
+    /// Bring the layouts in line with <see cref="AppSettings.LayoutPerDesktop"/> — at start, and whenever it's flipped:
+    /// give each desktop its own copy of a monitor's layout, or fold them back into one.
+    /// </summary>
+    public void RekeyDesktops()
+    {
+        ExitEdit();
+        var current = VirtualDesktops.Current();
+        var touched = _settings().LayoutPerDesktop
+            ? ZoneDesktops.Split(_containers, h => VirtualDesktops.DesktopOf((IntPtr)h), current)
+            : ZoneDesktops.Merge(_containers, current);
+        foreach (var c in touched.Where(c => MonitorOf(c) is not null)) Reflow(c);
+        // Windows moved while Flamingle wasn't watching (a desktop closed, say) catch up before the empty layouts go.
+        FollowDesktops();
+        PruneClosedDesktops();
+        Save();
+        SyncHandles();
+    }
+
+    /// <summary>Drop empty layouts on desktops that have been closed. The current desktop always counts as open — a
+    /// brand-new one may not be in the shell's list yet.</summary>
+    private void PruneClosedDesktops()
+    {
+        if (!_settings().LayoutPerDesktop || VirtualDesktops.All() is not { } open) return;
+        IReadOnlyCollection<Guid> keep = VirtualDesktops.Current() is { } current ? [.. open, current] : open;
+        if (ZoneDesktops.PruneClosed(_containers, keep)) Save();
+    }
+
+    /// <summary>
+    /// Zoned windows that moved to another desktop go into that desktop's layout on the same monitor (a copy of the one
+    /// they left, if it has none yet) and take their zones there — so a layout only ever moves its own desktop's windows.
+    /// </summary>
+    private void FollowDesktops()
+    {
+        if (!_settings().LayoutPerDesktop) return;
+        var moved = false;
+        foreach (var c in _containers.ToList())
+        {
+            if (c.Desktop is null || _drag?.Container == c || _resize?.Container == c) continue;
+            foreach (var slot in c.Slots.Values.ToList())
+            {
+                if (VirtualDesktops.DesktopOf((IntPtr)slot.Handle) is not { } now || now == c.Desktop) continue;
+                var target = ContainerOn(c.DeviceName, now);
+                if (target is null) _containers.Add(target = c.Twin(now));
+                c.Slots.Remove(slot.Handle);
+                target.Slots[slot.Handle] = slot;
+                WindowPlacer.Fit((IntPtr)slot.Handle, ZoneContainer.TargetFor(slot, target.Zones()));
+                moved = true;
+            }
+        }
+        if (moved) Save();
     }
 
     private static void Slot(ZoneContainer c, IntPtr hwnd, IEnumerable<int> zones, PixelRect? restore)
