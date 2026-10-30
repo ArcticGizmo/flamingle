@@ -7,9 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [v0.2.2] - 2026-10-30
+
 ### Fixed
 
-- Each virtual desktop keeps its own layout on a monitor, so tweaking one desktop's splits no longer rearranges the furniture on the others (Settings → Zones, on by default)
+- Each virtual desktop keeps its own layout (they were sharing, badly)
 
 ---
 
