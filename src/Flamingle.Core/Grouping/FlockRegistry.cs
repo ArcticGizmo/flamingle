@@ -81,6 +81,33 @@ public sealed class FlockRegistry
         Changed?.Invoke();
     }
 
+    /// <summary>The same monitor was known by two keys (see <c>ZoneMonitorKeys</c>): its zone flocks under
+    /// <paramref name="from"/> join the ones under <paramref name="to"/> on the same desktop, or move across (renamed
+    /// unless the user named them) where there isn't one.</summary>
+    public void FoldZoneFlocks(string from, string to, Func<Flock, string> nameFor)
+    {
+        if (from == to) return;
+        var strays = ZoneFlocksOn(from).ToList();
+        if (strays.Count == 0) return;
+        foreach (var stray in strays)
+        {
+            if (_groups.FirstOrDefault(g => g.ZoneMonitor == to && g.ZoneDesktop == stray.ZoneDesktop) is { } home)
+            {
+                home.Members.AddRange(stray.Members.Where(m => !home.Contains(m.Handle)));
+                if (stray.Named && !home.Named)
+                {
+                    home.Name = stray.Name;
+                    home.Named = true;
+                }
+                _groups.Remove(stray);
+                continue;
+            }
+            stray.ZoneMonitor = to;
+            if (!stray.Named) stray.Name = nameFor(stray);
+        }
+        Changed?.Invoke();
+    }
+
     /// <summary>Two zone layouts swapped monitors: each monitor's zone flocks move to the other, renamed unless the
     /// user named them. <paramref name="nameFor"/> sees each flock already on its new monitor. With a
     /// <paramref name="desktop"/>, only that desktop's zone flocks swap.</summary>

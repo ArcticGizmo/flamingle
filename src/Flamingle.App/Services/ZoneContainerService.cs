@@ -130,6 +130,10 @@ internal sealed class ZoneContainerService : IDisposable
     /// <summary>Two layouts (of one desktop, or null for every desktop) swapped monitors — their zone flocks swap too.</summary>
     public event Action<MonitorInfo, MonitorInfo, Guid?>? Swapped;
 
+    /// <summary>A display change has settled (the monitors now connected) — state keyed per monitor elsewhere can
+    /// follow, as the layouts just have.</summary>
+    public event Action<IReadOnlyList<MonitorInfo>>? DisplaysChanged;
+
     /// <summary>The chip's "Minimise layout" (device name of the layout's monitor).</summary>
     public event Action<string>? MinimiseRequested;
 
@@ -171,19 +175,19 @@ internal sealed class ZoneContainerService : IDisposable
         var monitors = Monitors.All();
         foreach (var state in _file.Load([]))
         {
-            // (Older versions saved the monitor's GDI name.)
+            // A layout saved under a monitor's GDI name is folded into its stable key just below.
             var monitor = monitors.FirstOrDefault(m => m.DeviceName == state.DeviceName)
                           ?? monitors.FirstOrDefault(m => m.GdiName == state.DeviceName);
             if (monitor is null) continue;   // that monitor's gone; forget the container
-            if (ContainerOn(monitor.DeviceName, state.Desktop) is not null) continue;
+            if (ContainerOn(state.DeviceName, state.Desktop) is not null) continue;
             var c = state.ToContainer(IsAlive);
-            c.DeviceName = monitor.DeviceName;
             // A side panel may have docked or closed since the last run.
             c.Frame = state.WorkArea is { } then
                 ? ZoneContainer.Refit(c.Frame, then, monitor.WorkArea)
                 : ZoneContainer.ClampInto(c.Frame, monitor.WorkArea);
             _containers.Add(c);
         }
+        FoldGdiKeys(monitors);
         foreach (var m in monitors) _workAreas[m.DeviceName] = m.WorkArea;
         RekeyDesktops();
 
@@ -468,11 +472,29 @@ internal sealed class ZoneContainerService : IDisposable
     {
         var monitors = Monitors.All();
         DebugLog.Write("displays settled: " + string.Join(", ", monitors.Select(m => $"{m.ShortName}={m.DeviceName} {m.WorkArea}")));
+        if (_drag is null && _resize is null && FoldGdiKeys(monitors)) Save();
+        DisplaysChanged?.Invoke(monitors);
         FollowWorkAreas();
         ReflowConnected();
         // Windows may still be putting windows back itself; go round once more after it's done.
         DispatcherTimer.RunOnce(ReflowConnected, TimeSpan.FromMilliseconds(1500));
         SyncHandles();
+    }
+
+    /// <summary>Layouts keyed by a connected monitor's GDI name (saved by an older version, or made while its stable
+    /// id couldn't be read) fold into the layout under its stable key — see <see cref="ZoneMonitorKeys"/>.</summary>
+    /// <returns>True if any moved.</returns>
+    private bool FoldGdiKeys(IReadOnlyList<MonitorInfo> monitors)
+    {
+        var touched = new List<ZoneContainer>();
+        foreach (var m in monitors)
+        {
+            if (m.GdiName is { } gdi && gdi != m.DeviceName)
+                touched.AddRange(ZoneMonitorKeys.Fold(_containers, gdi, m.DeviceName));
+        }
+        if (touched.Count == 0) return false;
+        DebugLog.Write($"folded {touched.Count} layout(s) keyed by GDI name into their monitor's stable key");
+        return true;
     }
 
     private void ReflowConnected()
