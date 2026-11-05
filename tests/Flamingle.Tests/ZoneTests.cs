@@ -548,4 +548,103 @@ public class ZoneFlockRegistryTests
         reg.Add(g, M(1));
         Assert.Equal(0, changes);
     }
+
+    private const string Gdi = @"\\.\DISPLAY3";
+    private const string Stable = @"DISPLAY\DELF166\4&18A747&0&UID12615";
+
+    [Fact]
+    public void Folding_a_monitors_gdi_key_joins_its_zone_flock_on_the_same_desktop()
+    {
+        var reg = new FlockRegistry();
+        var home = reg.Create("Zones · DISPLAY3", [M(1), M(2)], zoneMonitor: Stable, zoneDesktop: DesktopA);
+        reg.Create("Zones · DISPLAY3", [M(3)], zoneMonitor: Gdi, zoneDesktop: DesktopA);
+
+        reg.FoldZoneFlocks(Gdi, Stable, _ => "renamed");
+
+        Assert.Equal([home], reg.Groups);
+        Assert.Equal([1L, 2L, 3L], home.Members.Select(m => m.Handle));
+        Assert.Equal("Zones · DISPLAY3", home.Name);
+    }
+
+    [Fact]
+    public void Folding_moves_a_zone_flock_whose_desktop_has_none_under_the_stable_key()
+    {
+        var reg = new FlockRegistry();
+        var a = reg.Create("A", [M(1)], zoneMonitor: Stable, zoneDesktop: DesktopA);
+        var b = reg.Create("Zones · old", [M(2)], zoneMonitor: Gdi, zoneDesktop: DesktopB);
+
+        reg.FoldZoneFlocks(Gdi, Stable, _ => "Zones · DISPLAY3");
+
+        Assert.Same(a, reg.ForZone(Stable, DesktopA));
+        Assert.Same(b, reg.ForZone(Stable, DesktopB));
+        Assert.Equal("Zones · DISPLAY3", b.Name);
+        Assert.Empty(reg.ZoneFlocksOn(Gdi));
+    }
+
+    [Fact]
+    public void Folding_keeps_a_name_the_user_gave_the_stray()
+    {
+        var reg = new FlockRegistry();
+        var home = reg.Create("Zones · DISPLAY3", [M(1)], zoneMonitor: Stable, zoneDesktop: DesktopA);
+        var stray = reg.Create("Zones · DISPLAY3", [M(2)], zoneMonitor: Gdi, zoneDesktop: DesktopA);
+        reg.Rename(stray, "Work");
+
+        reg.FoldZoneFlocks(Gdi, Stable, _ => "renamed");
+
+        Assert.Equal(("Work", true), (home.Name, home.Named));
+    }
+}
+
+public class ZoneMonitorKeyTests
+{
+    private const string Gdi = @"\\.\DISPLAY3";
+    private const string Stable = @"DISPLAY\DELF166\4&18A747&0&UID12615";
+    private static readonly Guid DesktopA = new("aaaaaaaa-0000-0000-0000-000000000000");
+    private static readonly Guid DesktopB = new("bbbbbbbb-0000-0000-0000-000000000000");
+
+    private static ZoneContainer Layout(string device, Guid? desktop, string layoutId, params long[] handles)
+    {
+        var c = new ZoneContainer(device, layoutId, new PixelRect(0, 0, 800, 600)) { Desktop = desktop };
+        foreach (var h in handles) c.Slots[h] = new ZoneSlot(h, 1, [0]);
+        return c;
+    }
+
+    [Fact]
+    public void A_stray_layout_folds_into_the_monitors_layout_on_the_same_desktop()
+    {
+        var home = Layout(Stable, DesktopA, "columns-3", 1, 2);
+        var stray = Layout(Gdi, DesktopA, "columns-2", 3);
+        var containers = new List<ZoneContainer> { home, stray };
+
+        var touched = ZoneMonitorKeys.Fold(containers, Gdi, Stable);
+
+        Assert.Equal([home], containers);
+        Assert.Equal("columns-3", home.LayoutId);
+        Assert.Equal([1L, 2L, 3L], home.Slots.Keys.Order());
+        Assert.Equal([home], touched);
+    }
+
+    [Fact]
+    public void A_stray_layout_with_no_counterpart_is_rekeyed()
+    {
+        var home = Layout(Stable, DesktopA, "columns-3", 1);
+        var stray = Layout(Gdi, DesktopB, "columns-2", 2);
+        var containers = new List<ZoneContainer> { home, stray };
+
+        var touched = ZoneMonitorKeys.Fold(containers, Gdi, Stable);
+
+        Assert.Equal([home, stray], containers);
+        Assert.Equal(Stable, stray.DeviceName);
+        Assert.Equal([stray], touched);
+    }
+
+    [Fact]
+    public void Folding_leaves_other_monitors_alone()
+    {
+        var other = Layout(@"\\.\DISPLAY4", DesktopA, "columns-2", 1);
+        var containers = new List<ZoneContainer> { other };
+
+        Assert.Empty(ZoneMonitorKeys.Fold(containers, Gdi, Stable));
+        Assert.Equal(@"\\.\DISPLAY4", other.DeviceName);
+    }
 }

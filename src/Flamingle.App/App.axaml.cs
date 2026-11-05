@@ -83,7 +83,7 @@ public partial class App : Application
 
             _notifier = new TrayNotifier();
             _notifier.Shown += () => DebugLog.Write("notification shown");
-            AdoptStableMonitorKeys();
+            AdoptStableMonitorKeys(Monitors.All());
 
             _controller = new FlockController(_registry, _hooks, () => _settings);
             _controller.Notice += ToastWindow.Show;
@@ -100,6 +100,7 @@ public partial class App : Application
             _containers.Swapped += (a, b, desktop) =>
                 _registry.SwapZoneFlocks(a.DeviceName, b.DeviceName, g => FlockController.ZoneFlockName(g.ZoneMonitor!, g.ZoneDesktop),
                     _settings.ZoneFlockPerDesktop ? desktop : null);
+            _containers.DisplaysChanged += AdoptStableMonitorKeys;
             _containers.LayoutPicked += ApplyLayout;
             _containers.SettingsRequested += () => ShowSettings("zones");
             _containers.MinimiseRequested += device =>
@@ -400,16 +401,17 @@ public partial class App : Application
         UpdateSettings(_settings.WithLayout(monitor.DeviceName, layoutId));
     }
 
-    /// <summary>Per-monitor state used to be keyed by the monitor's GDI name (<c>\\.\DISPLAY3</c>), which it loses
-    /// every time it reconnects. Carry what's saved under a connected monitor's GDI name over to its stable key.</summary>
-    private void AdoptStableMonitorKeys()
+    /// <summary>A monitor's GDI name (<c>\\.\DISPLAY3</c>) changes every time it reconnects, so state keyed by it
+    /// (saved by an older version, or made mid display change before the stable id could be read) folds into the
+    /// connected monitor's stable key — joining the zone flock already there rather than sitting beside it.</summary>
+    private void AdoptStableMonitorKeys(IReadOnlyList<MonitorInfo> monitors)
     {
-        foreach (var m in Monitors.All())
+        foreach (var m in monitors)
         {
             if (m.GdiName is not { } gdi || gdi == m.DeviceName) continue;
             if (_settings.ZoneLayouts.TryGetValue(gdi, out var layout) && !_settings.ZoneLayouts.ContainsKey(m.DeviceName))
                 UpdateSettings(_settings.WithLayout(m.DeviceName, layout));
-            _registry.RehomeZoneFlocks(gdi, m.DeviceName, g => FlockController.ZoneFlockName(m.DeviceName, g.ZoneDesktop));
+            _registry.FoldZoneFlocks(gdi, m.DeviceName, g => FlockController.ZoneFlockName(m.DeviceName, g.ZoneDesktop));
         }
     }
 

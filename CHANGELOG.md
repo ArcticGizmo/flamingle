@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.2.3] - 2026-11-05
+
+### Fixed
+
+- Docking no longer stacks a second flock on a monitor (one was plenty)
+
+---
+
 ## [v0.2.2] - 2026-10-30
 
 ### Fixed
