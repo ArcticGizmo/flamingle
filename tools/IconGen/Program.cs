@@ -7,17 +7,16 @@ using Svg;
 //
 //   src/Flamingle.App/Assets/flamingle.png              256x256 PNG — the in-app logo
 //   src/Flamingle.App/Assets/flamingle.ico              multi-resolution ICO (16..256) — windows + .exe ApplicationIcon
-//   src/Flamingle.App/Assets/tray/flamingle-<n>.png     one exact-size tray frame per DPI scale (16 = 100% ... 48 = 300%)
-//   src/Flamingle.App/Assets/tray/flamingle-dev-<n>.png the same with the pink recoloured green — marks a dev instance
+//   src/Flamingle.App/Assets/tray/flamingle-32.png      32x32 PNG — the tray icon
+//   src/Flamingle.App/Assets/tray/flamingle-dev-32.png  the same with the pink recoloured green — marks a dev instance
 //   landing-icon.png                                     512x512 PNG — the README header logo
 //
 // Re-run after editing flamingle.svg:  dotnet run --project tools/IconGen   (or tools/gen-icons.ps1),
 // then commit the regenerated assets.
 //
-// Adapted from emuwren's IconGen (../emuwren/tools/IconGen). The tray frames are the addition: the
-// notification area draws its icon at SM_CXSMICON for the taskbar's DPI, and any resampling there (by Avalonia
-// or the shell) is what makes a tray icon blurry. Rendering the vector straight to each of those pixel sizes means
-// the app can hand over a bitmap that is shown 1:1.
+// Adapted from emuwren's IconGen (../emuwren/tools/IconGen). The tray PNG is the addition: Avalonia passes a PNG to
+// the shell at its own size, and Explorer shrinking a 32 px image to the tray stays sharp at every scale up to 200 %,
+// whereas stretching a smaller one blurs. See docs/tray-icon-blur.md.
 
 // Resolve the repo root from this tool's location so it works regardless of CWD.
 string repoRoot = FindRepoRoot(AppContext.BaseDirectory);
@@ -51,20 +50,14 @@ Console.WriteLine($"Fit: content {fit.Box.Width:0.0}x{fit.Box.Height:0.0} croppe
 // taskbar ask for small frames at every DPI scale; large surfaces ask for 256).
 int[] icoSizes = { 16, 20, 24, 32, 40, 48, 64, 128, 256 };
 
-// SM_CXSMICON at 100%, 125%, 150%, 175%, 200%, 225%, 250% and 300%.
-int[] traySizes = { 16, 20, 24, 28, 32, 36, 40, 48 };
-
 string assetsDir = Path.Combine(repoRoot, "src", "Flamingle.App", "Assets");
 WritePng(doc, fit, Path.Combine(assetsDir, "flamingle.png"), 256);
 WritePng(doc, fit, Path.Combine(repoRoot, "landing-icon.png"), 512);
 WriteIco(doc, fit, Path.Combine(assetsDir, "flamingle.ico"), icoSizes);
 
 string trayDir = Path.Combine(assetsDir, "tray");
-foreach (var size in traySizes)
-{
-    WritePng(doc, fit, Path.Combine(trayDir, $"flamingle-{size}.png"), size);
-    WritePng(devDoc, fit, Path.Combine(trayDir, $"flamingle-dev-{size}.png"), size);
-}
+WritePng(doc, fit, Path.Combine(trayDir, "flamingle-32.png"), 32);
+WritePng(devDoc, fit, Path.Combine(trayDir, "flamingle-dev-32.png"), 32);
 
 Console.WriteLine("Done.");
 return 0;

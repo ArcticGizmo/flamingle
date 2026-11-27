@@ -246,11 +246,7 @@ internal static class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool EnumDisplayDevicesW(string? lpDevice, uint iDevNum, ref DISPLAY_DEVICEW lpDisplayDevice, uint dwFlags);
 
-    public const uint MONITOR_DEFAULTTOPRIMARY = 1;
     public const int SM_CXSMICON = 49;
-
-    [DllImport("user32.dll")]
-    public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
 
     [DllImport("user32.dll")]
     public static extern int GetSystemMetricsForDpi(int nIndex, uint dpi);

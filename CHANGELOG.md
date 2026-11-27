@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.2.4] - 2026-11-27
+
+### Fixed
+
+- Sharp tray icon at every display scale
+- Cleaner icon edges (a green flamingo was hiding behind the pink one)
+
+---
+
 ## [v0.2.3] - 2026-11-05
 
 ### Fixed
